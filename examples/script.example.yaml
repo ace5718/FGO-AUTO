@@ -1,0 +1,3 @@
+# Script anchors (Script anchor defaults). Paths relative to this file.
+anchors:
+  enter_quest: ../tests/fixtures/anchors/enter_quest.png

@@ -1,0 +1,11 @@
+# Minimal Run config (issue #3). Calibrate window_title_rule on your Host.
+script: farm_default
+loop_limit: 10
+window_title_rule: "BlueStacks"
+recognition_retries: 5
+display_preset: [1920, 1080]
+script_config: script.example.yaml
+anchors:
+  # Run anchor override example (optional):
+  # enter_quest: anchors/my_enter_quest.png
+  enter_quest: ../tests/fixtures/anchors/enter_quest.png

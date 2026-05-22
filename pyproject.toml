@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fgo-auto"
+version = "0.1.0"
+description = "Fate/Grand Order TW automation helper for BlueStacks 5"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "typer>=0.12",
+  "pydantic>=2",
+  "pyyaml>=6",
+  "structlog>=24",
+  "numpy>=1.26",
+  "opencv-python-headless>=4.8",
+]
+
+[project.optional-dependencies]
+windows = [
+  "mss>=9",
+  "pywin32>=306",
+  "pyautogui>=0.9",
+]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+]
+
+[project.scripts]
+fgo-auto = "fgo_auto.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fgo_auto"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "win32: requires Windows and emulator window",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
