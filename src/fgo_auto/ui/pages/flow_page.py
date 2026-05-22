@@ -30,7 +30,7 @@ from fgo_auto.services.quest_flow_service import (
     save_navigation,
 )
 from fgo_auto.ui.strings_zh import translate_message
-from fgo_auto.ui.widgets.anchor_gallery import AnchorGalleryPanel
+from fgo_auto.ui.widgets.anchor_preview_dialog import show_anchor_fullsize
 
 _NO_ANCHOR = "（尚無圖示，請到預覽新增）"
 _DELAY_CHOICES = ("0.5", "1", "2", "3", "5")
@@ -75,16 +75,11 @@ class _StepRow(ctk.CTkFrame):
         profile_dir: Path | None,
         on_delete: Callable[[], None],
         on_move: Callable[[int], None],
-        on_request_pick: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._anchor_choices = anchor_choices or [_NO_ANCHOR]
         self._profile_dir = profile_dir
-        self._on_request_pick = on_request_pick
-        self._selected_anchor = (
-            self._anchor_choices[0] if self._anchor_choices[0] != _NO_ANCHOR else "圖示名稱"
-        )
         self._thumb_photo: ImageTk.PhotoImage | None = None
 
         kinds = list(STEP_KIND_ZH.keys())
@@ -99,8 +94,9 @@ class _StepRow(ctk.CTkFrame):
         self._thumb_box.pack(side="left", padx=6, pady=4)
         self._thumb_box.pack_propagate(False)
         # 勿對 tk.Label 設 width/height（單位是字元數，會變成大片黑底）
-        self._thumb_lbl = tk.Label(self._thumb_box, text="—", bg="#3a3a3a", fg="#aaaaaa")
+        self._thumb_lbl = tk.Label(self._thumb_box, text="—", bg="#3a3a3a", fg="#aaaaaa", cursor="hand2")
         self._thumb_lbl.place(relx=0.5, rely=0.5, anchor="center")
+        self._thumb_lbl.bind("<Button-1>", lambda _e: self._open_full_image())
 
         ctk.CTkButton(self, text="↑", width=28, command=lambda: on_move(-1)).pack(side="left", padx=2)
         ctk.CTkButton(self, text="↓", width=28, command=lambda: on_move(1)).pack(side="left", padx=2)
@@ -127,29 +123,15 @@ class _StepRow(ctk.CTkFrame):
         self._thumb_photo = photo
         self._thumb_lbl.configure(image=photo, text="")
 
-    def get_anchor_name(self) -> str | None:
-        if self._kind_menu.get() in ("點擊", "往下滑找圖示"):
-            return self._selected_anchor
-        return None
+    def _open_full_image(self) -> None:
+        if self._kind_menu.get() not in ("點擊", "往下滑找圖示"):
+            return
+        name = self._pick("anchor") if "anchor" in self._pickers else None
+        if name and not name.startswith("（"):
+            show_anchor_fullsize(self.winfo_toplevel(), self._profile_dir, name)
 
-    def set_anchor_name(self, name: str) -> None:
-        self._selected_anchor = name
-        if hasattr(self, "_anchor_name_lbl"):
-            self._anchor_name_lbl.configure(text=name)
+    def _on_anchor_pick(self, name: str) -> None:
         self._show_thumb(name)
-
-    def _open_anchor_gallery(self) -> None:
-        if self._on_request_pick:
-            self._on_request_pick()
-
-    def _build_anchor_ui(self) -> None:
-        row = ctk.CTkFrame(self._detail)
-        row.pack(fill="x", pady=1)
-        ctk.CTkLabel(row, text="圖示", width=52, anchor="w").pack(side="left")
-        ctk.CTkButton(row, text="選圖示 ▼", width=80, command=self._open_anchor_gallery).pack(side="left", padx=2)
-        self._anchor_name_lbl = ctk.CTkLabel(row, text=self._selected_anchor, width=140, anchor="w")
-        self._anchor_name_lbl.pack(side="left")
-        self._show_thumb(self._selected_anchor)
 
     def _add_picker(
         self,
@@ -182,13 +164,15 @@ class _StepRow(ctk.CTkFrame):
     def _load_step(self, step: NavigationStep) -> None:
         if isinstance(step, TapAnchorStep):
             self._kind_menu.set("點擊")
-            self._selected_anchor = step.name
             self._on_kind("點擊")
+            self._set_pick("anchor", step.name, tuple(self._anchor_choices))
+            self._show_thumb(step.name)
         elif isinstance(step, ScrollUntilAnchorStep):
             self._kind_menu.set("往下滑找圖示")
-            self._selected_anchor = step.name
             self._on_kind("往下滑找圖示")
+            self._set_pick("anchor", step.name, tuple(self._anchor_choices))
             self._set_pick("attempts", str(step.max_attempts), _SCROLL_ATTEMPTS)
+            self._show_thumb(step.name)
         elif isinstance(step, DelayStep):
             self._kind_menu.set("等待秒")
             self._on_kind("等待秒")
@@ -209,7 +193,13 @@ class _StepRow(ctk.CTkFrame):
     def _on_kind(self, kind: str) -> None:
         self._clear_detail()
         if kind in ("點擊", "往下滑找圖示"):
-            self._build_anchor_ui()
+            self._add_picker(
+                "anchor",
+                "圖示",
+                tuple(self._anchor_choices),
+                on_change=self._on_anchor_pick,
+            )
+            self._on_anchor_pick(self._pickers["anchor"].get())
             if kind == "往下滑找圖示":
                 self._add_picker("attempts", "次數", _SCROLL_ATTEMPTS, width=72)
         elif kind == "等待秒":
@@ -223,9 +213,9 @@ class _StepRow(ctk.CTkFrame):
             self._add_picker("subflow", "流程", _SUBFLOW_CHOICES)
 
     def _resolve_anchor_name(self) -> str:
-        name = self._selected_anchor.strip()
-        if not name or name == _NO_ANCHOR or name == "圖示名稱":
-            raise ValueError("請點「選圖示」從圖示庫選一張，或先到預覽儲存圖示")
+        name = self._pick("anchor")
+        if not name or name.startswith("（"):
+            raise ValueError("請從下拉選擇圖示，或先到預覽儲存圖示")
         return name
 
     def to_step(self) -> NavigationStep:
@@ -260,7 +250,6 @@ class FlowPage(ctk.CTkFrame):
         self._profile_dir: Path | None = None
         self._anchor_choices: list[str] = [_NO_ANCHOR]
         self._step_rows: list[_StepRow] = []
-        self._pick_index: int | None = None
 
         ctk.CTkLabel(self, text=FLOW_GUIDE, justify="left", wraplength=880).pack(
             anchor="w", padx=12, pady=(10, 4)
@@ -284,10 +273,7 @@ class FlowPage(ctk.CTkFrame):
         ctk.CTkButton(copy_row, text="新增空白流程", width=100, command=self._create_blank).pack(side="left", padx=2)
         ctk.CTkButton(copy_row, text="從範例複製", width=90, command=self._copy_from_example).pack(side="left", padx=2)
 
-        self._gallery = AnchorGalleryPanel(self, on_pick=self._on_gallery_pick)
-        self._gallery.pack(fill="x", padx=12, pady=4)
-
-        self._steps_host = ctk.CTkScrollableFrame(self, height=240, label_text="點擊順序（點「選圖示」後在上方圖示庫點圖）")
+        self._steps_host = ctk.CTkScrollableFrame(self, height=280, label_text="點擊順序（點右側縮圖可看全圖）")
         self._steps_host.pack(fill="both", expand=True, padx=12, pady=4)
 
         add_row = ctk.CTkFrame(self)
@@ -347,7 +333,6 @@ class FlowPage(ctk.CTkFrame):
             self._anchor_choices = anchor_choices_for_profile(profile_dir, navigation)
             if not self._anchor_choices:
                 self._anchor_choices = [_NO_ANCHOR]
-            self._gallery.load(profile_dir, self._anchor_choices)
             current = self._collect_steps() if self._step_rows else None
             self._set_steps(current if current is not None else navigation.steps)
             note = "可改" if entry.is_user_copy else "範例請先複製"
@@ -367,19 +352,6 @@ class FlowPage(ctk.CTkFrame):
         for step in steps:
             self._append_row(step)
 
-    def _begin_pick_at(self, index: int) -> None:
-        self._pick_index = index
-        row = self._step_rows[index]
-        name = row.get_anchor_name()
-        self._gallery.set_pick_hint(f"點下方圖示指派給：步驟 {index + 1}")
-        self._gallery.highlight(name)
-
-    def _on_gallery_pick(self, name: str) -> None:
-        if self._pick_index is None or self._pick_index >= len(self._step_rows):
-            self._status.configure(text="請先點該步驟的「選圖示 ▼」")
-            return
-        self._step_rows[self._pick_index].set_anchor_name(name)
-
     def _append_row(self, step: NavigationStep) -> None:
         idx = len(self._step_rows)
         row = _StepRow(
@@ -389,7 +361,6 @@ class FlowPage(ctk.CTkFrame):
             self._profile_dir,
             on_delete=lambda r=idx: self._delete_step(r),
             on_move=lambda delta, r=idx: self._move_step(r, delta),
-            on_request_pick=lambda i=idx: self._begin_pick_at(i),
         )
         row.pack(fill="x", pady=2)
         self._step_rows.append(row)

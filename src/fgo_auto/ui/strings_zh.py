@@ -45,6 +45,15 @@ def outcome_label(outcome: RunOutcome) -> str:
     return OUTCOME_ZH.get(outcome, outcome.value)
 
 
+def recognition_pause_hint(display_preset: tuple[int, int] | None = None) -> str:
+    size = f"{display_preset[0]}×{display_preset[1]}" if display_preset else "與 BlueStacks 視窗一致"
+    return (
+        f"畫面辨識失敗：{size} 的模板庫可能為空或與目前畫面不符。"
+        "請到「模板庫」→「擷圖→存為主畫面模板」（遊戲停在主畫面），再執行。"
+        "詳情見 logs/pause_screenshot.png。"
+    )
+
+
 def translate_message(text: str) -> str:
     for pattern, repl in _ERROR_PATTERNS:
         if pattern.search(text):

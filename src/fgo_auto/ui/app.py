@@ -12,13 +12,13 @@ from fgo_auto.run.run_config import RunConfig
 from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService
 from fgo_auto.services.paths import default_profile_dir, logs_dir
+from fgo_auto.services.catalog_service import count_templates
 from fgo_auto.services.quest_flow_service import list_quest_profiles
 from fgo_auto.services.run_service import RunEventType, RunService
 from fgo_auto.services.run_setup import create_run_stack
-from fgo_auto.ui.logging_bridge import attach_queue_handler
 from fgo_auto.ui.pages import CatalogPage, FlowPage, LogsPage, PreviewPage, RunPage, SettingsPage
 from fgo_auto.ui.state import AppState
-from fgo_auto.ui.strings_zh import translate_message
+from fgo_auto.ui.strings_zh import recognition_pause_hint, screen_state_label, translate_message
 from fgo_auto.ui.widgets import WindowPickerFrame
 
 
@@ -30,9 +30,8 @@ class FgoAutoApp(ctk.CTk):
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
-        configure_logging()
         self._log_queue: queue.Queue[str] = queue.Queue()
-        attach_queue_handler(self._log_queue)
+        configure_logging(gui_queue=self._log_queue)
 
         self._config_svc = ConfigService()
         self._config_svc.seed_default_profile()
@@ -92,7 +91,7 @@ class FgoAutoApp(ctk.CTk):
         self._logs_page = LogsPage(tab_logs, self._log_queue)
         self._logs_page.pack(fill="both", expand=True)
 
-        self._catalog_page = CatalogPage(tab_catalog)
+        self._catalog_page = CatalogPage(tab_catalog, on_capture=self._capture_preview)
         self._catalog_page.pack(fill="both", expand=True)
 
         footer = ctk.CTkLabel(
@@ -221,7 +220,17 @@ class FgoAutoApp(ctk.CTk):
             self._run_svc = RunService(engine)
             self._run_svc.start()
             self._state.run_active = True
-            return "已開始執行 Run（背景執行緒）"
+            qid = cfg.quest_profile if cfg else "—"
+            ver = cfg.script_version if cfg else "—"
+            n = count_templates(cfg.display_preset)
+            start_msg = f"已開始執行（{ver} · {qid}）"
+            self._logs_page.append_line(start_msg)
+            if n == 0:
+                self._logs_page.append_line(
+                    f"警告：{cfg.display_preset[0]}×{cfg.display_preset[1]} 模板庫為空，"
+                    "請到「模板庫」→「擷圖→存為主畫面模板」（遊戲需在主畫面）"
+                )
+            return start_msg
         except Exception as exc:
             msg = translate_message(f"啟動失敗：{exc}")
             self._log_queue.put(msg)
@@ -241,6 +250,11 @@ class FgoAutoApp(ctk.CTk):
                     break
                 if event.type is RunEventType.SCREEN_STATE and event.screen_state:
                     self._state.last_screen_state = event.screen_state.value
+                    line = (
+                        f"畫面：{screen_state_label(event.screen_state.value)}"
+                        f"（{event.screen_state.value}）循環 {event.loops_completed}"
+                    )
+                    self._logs_page.append_line(line)
                     self._run_page.update_status(
                         screen_state=event.screen_state.value,
                         loops=event.loops_completed,
@@ -249,7 +263,16 @@ class FgoAutoApp(ctk.CTk):
                     self._state.run_active = False
                     msg = translate_message(event.message)
                     if event.outcome is RunOutcome.PAUSED:
-                        msg += " — 請查看 logs/pause_screenshot.png（暫停截圖）"
+                        preset = (
+                            self._state.run_config.display_preset
+                            if self._state.run_config
+                            else None
+                        )
+                        if "Recognition failure" in event.message or "recognition" in event.message.lower():
+                            msg = recognition_pause_hint(preset)
+                        else:
+                            msg += " — 請查看 logs/pause_screenshot.png"
+                    self._logs_page.append_line(f"結果：{msg}")
                     self._run_page.update_status(
                         outcome=event.outcome,
                         loops=event.loops_completed,
@@ -257,7 +280,9 @@ class FgoAutoApp(ctk.CTk):
                     )
                 elif event.type is RunEventType.ERROR:
                     self._state.run_active = False
-                    self._run_page.update_status(message=translate_message(event.message))
+                    err = translate_message(event.message)
+                    self._logs_page.append_line(f"錯誤：{err}")
+                    self._run_page.update_status(message=err)
         self.after(200, self._poll_run_events)
 
 

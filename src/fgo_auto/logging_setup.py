@@ -1,17 +1,62 @@
+from __future__ import annotations
+
 import logging
+import queue
 import sys
 
 import structlog
 
+from fgo_auto.logging_bridge import QueueLogHandler
 
-def configure_logging(level: int = logging.INFO) -> None:
-    structlog.configure(
+
+def _shared_processors() -> list:
+    return [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+    ]
+
+
+def _human_renderer() -> structlog.dev.ConsoleRenderer:
+    return structlog.dev.ConsoleRenderer(colors=False)
+
+
+def configure_logging(
+    level: int = logging.INFO,
+    *,
+    gui_queue: queue.Queue[str] | None = None,
+) -> None:
+    """Structlog → stdlib; GUI 與終端機使用同一套可讀格式。"""
+    shared = _shared_processors()
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared,
         processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.dev.ConsoleRenderer(),
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            _human_renderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(level),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
+    )
+
+    handlers: list[logging.Handler] = []
+    stderr = logging.StreamHandler(sys.stderr)
+    stderr.setFormatter(formatter)
+    handlers.append(stderr)
+
+    if gui_queue is not None:
+        gui = QueueLogHandler(gui_queue)
+        gui.setFormatter(formatter)
+        handlers.append(gui)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    for handler in handlers:
+        root.addHandler(handler)
+    root.setLevel(level)
+
+    structlog.configure(
+        processors=shared + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
     )

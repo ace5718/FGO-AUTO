@@ -108,12 +108,12 @@ class ScriptEngineV2:
         return RunOutcome.NORMAL_END
 
     def _handle_detect(self, state: ScreenState) -> None:
-        if state is ScreenState.TERMINAL:
+        if state in {ScreenState.TERMINAL, ScreenState.MAIN}:
+            if state is ScreenState.MAIN:
+                logger.info("script_v2_start_navigation", from_state="main")
             self.phase = ScriptPhaseV2.NAVIGATE
             self.navigation_done = False
             self.battle_done = False
-        elif state is ScreenState.MAIN:
-            logger.info("script_v2_at_main", hint="Navigate from Terminal for Quest loop")
         elif state is ScreenState.BATTLE:
             self.phase = ScriptPhaseV2.BATTLE
         elif state is ScreenState.RESULT:

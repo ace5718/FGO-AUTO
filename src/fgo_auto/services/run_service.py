@@ -40,6 +40,7 @@ class RunService:
         self._engine = engine
         self._events: queue.Queue[RunEvent] = queue.Queue()
         self._thread: threading.Thread | None = None
+        self._last_emitted_state: str | None = None
 
     @property
     def engine(self) -> ScriptEngineLike:
@@ -55,6 +56,7 @@ class RunService:
     def start(self) -> None:
         if self.is_running():
             raise RuntimeError("Run already in progress")
+        self._last_emitted_state = None
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
@@ -70,14 +72,16 @@ class RunService:
                 outcome = self._engine.tick()
                 state = self._engine.controller.status.last_screen_state
                 loops = self._engine.controller.status.loops_completed
-                self._emit(
-                    RunEvent(
-                        RunEventType.SCREEN_STATE,
-                        state.value,
-                        screen_state=state,
-                        loops_completed=loops,
+                if state.value != self._last_emitted_state:
+                    self._last_emitted_state = state.value
+                    self._emit(
+                        RunEvent(
+                            RunEventType.SCREEN_STATE,
+                            state.value,
+                            screen_state=state,
+                            loops_completed=loops,
+                        )
                     )
-                )
                 if outcome is not RunOutcome.RUNNING:
                     reason = self._engine.controller.status.reason
                     self._emit(

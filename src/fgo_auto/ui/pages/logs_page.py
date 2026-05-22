@@ -13,8 +13,9 @@ class LogsPage(ctk.CTkFrame):
         self._text.pack(fill="both", expand=True, padx=12, pady=12)
         ctk.CTkLabel(
             self,
-            text="執行暫停時可開啟 logs/pause_screenshot.png 查看當下畫面",
+            text="執行中的畫面狀態與錯誤會顯示於此；暫停時另開 logs/pause_screenshot.png",
             anchor="w",
+            wraplength=900,
         ).pack(fill="x", padx=12, pady=(0, 8))
         self.after(200, self._poll)
 
