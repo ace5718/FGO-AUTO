@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 
 from fgo_auto.host.capture import CaptureError, FixtureHostCapture, HostCapture, create_host_capture
+from fgo_auto.host.tap_target import TapTarget, set_tap_target
 from fgo_auto.host.window_binder import WindowBinder, WindowInfo, create_window_binder
 from fgo_auto.services.paths import logs_dir
 from fgo_auto.vision.frame import Frame
@@ -32,12 +33,23 @@ class CaptureService:
 
     def bind(self, title_rule: str, pick_handle: int | None, preset: tuple[int, int]) -> WindowInfo:
         self._window = self._binder.resolve(title_rule, pick_handle=pick_handle)
-        self._capture = create_host_capture(self._window, preset)
+        capture = create_host_capture(self._window, preset)
+        self._capture = capture
+        left, top, _w, _h = capture.capture_region
+        set_tap_target(
+            TapTarget(
+                hwnd=capture.capture_hwnd,
+                origin_left=left,
+                origin_top=top,
+                client_coords=True,
+            )
+        )
         return self._window
 
     def use_fixture(self, image_path: Path, preset: tuple[int, int]) -> None:
         self._window = None
         self._capture = FixtureHostCapture(image_path, preset=preset)
+        set_tap_target(None)
 
     def capture_frame(self) -> Frame:
         if self._capture is None:

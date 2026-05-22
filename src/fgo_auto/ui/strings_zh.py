@@ -32,7 +32,7 @@ _ERROR_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"No window bound", re.I), "尚未綁定視窗，請先選擇 BlueStacks"),
     (
         re.compile(r"script_version v2 requires quest_profile", re.I),
-        "腳本版本 v2 必須填寫關卡設定檔（quest_profile），請到「設定」輸入例如 treasure_door_extreme 後儲存",
+        "腳本版本 v2 必須先套用方案（quest_profile），請到「流程設定」或「執行」分頁套用後再儲存",
     ),
 ]
 

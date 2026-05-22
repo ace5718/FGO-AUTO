@@ -18,7 +18,8 @@ class SettingsPage(ctk.CTkScrollableFrame):
         )
         ctk.CTkLabel(
             self,
-            text="顯示預設須與 BlueStacks 視窗實際尺寸一致（見 ADR-0005）。v2 需設定 quest_profile。",
+            text="顯示預設須與 BlueStacks「遊戲畫面」客戶區像素一致（不含標題列／外框，見 ADR-0005）。"
+            "v2 方案請在「流程設定」或「執行」分頁套用，勿在此手填 ID。",
             anchor="w",
             wraplength=880,
         ).pack(fill="x", padx=12, pady=(0, 8))
@@ -49,13 +50,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
         self._script_version = ctk.CTkOptionMenu(row2, values=["v0", "v2"])
         self._script_version.pack(side="left")
 
-        row3 = ctk.CTkFrame(self)
-        row3.pack(fill="x", padx=12, pady=4)
-        ctk.CTkLabel(row3, text="關卡設定檔 (v2)", width=160, anchor="w").pack(side="left")
-        self._quest_profile = ctk.CTkEntry(
-            row3, placeholder_text="treasure_door_extreme"
-        )
-        self._quest_profile.pack(side="left", fill="x", expand=True)
+        self._quest_profile: str | None = None
 
         btn_row = ctk.CTkFrame(self)
         btn_row.pack(fill="x", padx=12, pady=12)
@@ -75,9 +70,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
         self._display.delete(0, "end")
         self._display.insert(0, f"{config.display_preset[0]}, {config.display_preset[1]}")
         self._script_version.set(config.script_version)
-        self._quest_profile.delete(0, "end")
-        if config.quest_profile:
-            self._quest_profile.insert(0, config.quest_profile)
+        self._quest_profile = config.quest_profile
 
     def _collect(self) -> RunConfig:
         preset_parts = [p.strip() for p in self._display.get().split(",")]
@@ -90,7 +83,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
             display_preset=preset,
             script_config=self._fields["script_config"].get().strip() or None,
             script_version=self._script_version.get(),  # type: ignore[arg-type]
-            quest_profile=self._quest_profile.get().strip() or None,
+            quest_profile=self._quest_profile,
         )
 
     def _save(self) -> None:
@@ -98,7 +91,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
             cfg = self._collect()
             if cfg.script_version == "v2" and not cfg.quest_profile:
                 self._msg.configure(
-                    text="v2 請填寫關卡設定檔（例如 treasure_door_extreme）後再儲存"
+                    text="v2 請先在「流程設定」選方案並按「套用設定」，或到「執行」按「套用此流程」"
                 )
                 return
             self._on_save(cfg)

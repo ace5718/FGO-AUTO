@@ -6,16 +6,20 @@ from pathlib import Path
 import structlog
 
 from fgo_auto.host.tap import swipe_pixels, tap_pixels
+from fgo_auto.quest.loader import resolve_quest_profile_dir
 from fgo_auto.quest.models import (
     DelayStep,
     NavigationScript,
     NavigationStep,
     QuestProfile,
+    RefreshUntilAnchorStep,
     RunSubflowStep,
     ScrollUntilAnchorStep,
     TapAnchorStep,
     WaitScreenStep,
 )
+from fgo_auto.services.quest_flow_service import anchor_png_path, load_subflow_script
+from fgo_auto.services.paths import data_root
 from fgo_auto.vision.image_match import MatchResult
 from fgo_auto.run.controller import RunController
 from fgo_auto.vision.image_match import ImageMatch
@@ -62,7 +66,7 @@ class NavigationEngine:
         self.reset()
         while self._step_index < len(navigation.steps):
             step = navigation.steps[self._step_index]
-            ok = self._run_step(step, navigation)
+            ok = self._run_step(step, navigation, anchor_profile_dir=None)
             if not ok:
                 return False
             self._step_index += 1
@@ -70,11 +74,19 @@ class NavigationEngine:
         logger.info("navigation_complete", steps=len(navigation.steps))
         return True
 
-    def _run_step(self, step: NavigationStep, navigation: NavigationScript) -> bool:
+    def _run_step(
+        self,
+        step: NavigationStep,
+        navigation: NavigationScript,
+        *,
+        anchor_profile_dir: Path | None = None,
+    ) -> bool:
         if isinstance(step, TapAnchorStep):
-            return self._tap_anchor(step.name)
+            return self._tap_anchor(step.name, anchor_profile_dir=anchor_profile_dir)
         if isinstance(step, ScrollUntilAnchorStep):
-            return self._scroll_until_anchor(step.name, step.max_attempts)
+            return self._scroll_until_anchor(
+                step.name, step.max_attempts, anchor_profile_dir=anchor_profile_dir
+            )
         if isinstance(step, WaitScreenStep):
             return self._wait_screen(step.state, step.timeout_s)
         if isinstance(step, DelayStep):
@@ -82,29 +94,100 @@ class NavigationEngine:
             logger.info("navigation_step", action="delay", seconds=step.seconds)
             return True
         if isinstance(step, RunSubflowStep):
-            return self._run_subflow(step.ref)
+            return self._run_subflow(step.ref, step.repeat, step.interval_s)
+        if isinstance(step, RefreshUntilAnchorStep):
+            return self._refresh_until_anchor(
+                step.name,
+                step.max_attempts,
+                refresh_name=step.refresh_anchor,
+                anchor_profile_dir=anchor_profile_dir,
+            )
         logger.warning("navigation_unknown_step", step=step)
         return True
 
-    def _run_subflow(self, ref: str) -> bool:
-        if ref != "friend_support" or not self.quest_profile or not self.quest_profile.friend_support:
+    def _run_subflow(self, ref: str, repeat: int = 1, interval_s: float = 0.5) -> bool:
+        if not self.quest_profile:
             logger.warning("navigation_subflow_missing", ref=ref)
             return True
-        for raw in self.quest_profile.friend_support.steps:
-            if "tap" in raw:
-                if not self._tap_anchor(raw["tap"]):
+        profile_dir = resolve_quest_profile_dir(self.quest_profile.quest_id)
+        script, anchor_dir = load_subflow_script(profile_dir, self.quest_profile, ref)
+        if script is None or not script.steps:
+            logger.warning("navigation_subflow_missing", ref=ref)
+            return True
+        for run in range(1, repeat + 1):
+            for sub_step in script.steps:
+                if not self._run_step(sub_step, script, anchor_profile_dir=anchor_dir):
                     return False
-            elif raw.get("action") == "tap_anchor":
-                if not self._tap_anchor(raw.get("name", "")):
-                    return False
-            elif raw.get("action") == "delay":
-                time.sleep(float(raw.get("seconds", 0.5)))
-        logger.info("navigation_step", action="run_subflow", ref=ref)
+            if run < repeat:
+                time.sleep(interval_s)
+        logger.info(
+            "navigation_step",
+            action="run_subflow",
+            ref=ref,
+            repeat=repeat,
+            interval_s=interval_s,
+        )
         return True
 
-    def _find_anchor(self, name: str) -> tuple[Path, MatchResult] | None:
+    def _refresh_until_anchor(
+        self,
+        name: str,
+        max_attempts: int,
+        *,
+        refresh_name: str = "friend_refresh",
+        anchor_profile_dir: Path | None = None,
+    ) -> bool:
+        """Tap target when visible; otherwise tap refresh anchor and retry."""
+        for attempt in range(1, max_attempts + 1):
+            found = self._find_anchor(name, anchor_profile_dir=anchor_profile_dir)
+            if found is not None:
+                _, match = found
+                tap_pixels(match.center)
+                logger.info(
+                    "navigation_step",
+                    action="refresh_until_anchor",
+                    anchor=name,
+                    attempt=attempt,
+                    score=match.score,
+                )
+                return True
+            if attempt < max_attempts:
+                if not self._tap_anchor(refresh_name, anchor_profile_dir=anchor_profile_dir):
+                    logger.warning(
+                        "friend_refresh_missing",
+                        anchor=refresh_name,
+                        attempt=attempt,
+                    )
+                    return False
+                time.sleep(0.6)
+        self.controller._enter_pause(f"Friend support: target not found after refresh: {name}")
+        logger.error(
+            "friend_support_target_not_found",
+            anchor=name,
+            max_attempts=max_attempts,
+        )
+        return False
+
+    def _anchor_path(
+        self, name: str, *, anchor_profile_dir: Path | None = None
+    ) -> Path | None:
         path = self.anchor_paths.get(name)
-        if path is None or not path.is_file():
+        if path is not None and path.is_file():
+            return path
+        if anchor_profile_dir is not None:
+            resolved = anchor_png_path(anchor_profile_dir, name)
+            if resolved is not None:
+                return resolved
+        shared = data_root() / "anchors" / f"{name}.png"
+        if shared.is_file():
+            return shared
+        return None
+
+    def _find_anchor(
+        self, name: str, *, anchor_profile_dir: Path | None = None
+    ) -> tuple[Path, MatchResult] | None:
+        path = self._anchor_path(name, anchor_profile_dir=anchor_profile_dir)
+        if path is None:
             return None
         frame = self.controller.capture.capture()
         match = self.matcher.find(frame, path)
@@ -112,11 +195,11 @@ class NavigationEngine:
             return None
         return path, match
 
-    def _tap_anchor(self, name: str) -> bool:
-        found = self._find_anchor(name)
+    def _tap_anchor(self, name: str, *, anchor_profile_dir: Path | None = None) -> bool:
+        found = self._find_anchor(name, anchor_profile_dir=anchor_profile_dir)
         if found is None:
-            path = self.anchor_paths.get(name)
-            if path is None or not path.is_file():
+            path = self._anchor_path(name, anchor_profile_dir=anchor_profile_dir)
+            if path is None:
                 self.controller._enter_pause(f"Missing navigation anchor: {name}")
                 logger.error("navigation_anchor_missing", anchor=name)
             else:
@@ -128,9 +211,11 @@ class NavigationEngine:
         logger.info("navigation_step", action="tap_anchor", anchor=name, score=match.score)
         return True
 
-    def _scroll_until_anchor(self, name: str, max_attempts: int) -> bool:
+    def _scroll_until_anchor(
+        self, name: str, max_attempts: int, *, anchor_profile_dir: Path | None = None
+    ) -> bool:
         for attempt in range(1, max_attempts + 1):
-            found = self._find_anchor(name)
+            found = self._find_anchor(name, anchor_profile_dir=anchor_profile_dir)
             if found is not None:
                 _, match = found
                 tap_pixels(match.center)

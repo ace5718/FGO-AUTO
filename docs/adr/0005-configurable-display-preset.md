@@ -14,7 +14,7 @@ ADR-0001 required exactly 1920×1080. Operators often run BlueStacks at other si
 2. **HostCapture** rejects runs when frame size does not match preset (unchanged check, clearer messaging).
 3. **Catalog and anchors** are stored per preset under `data/catalog/<width>x<height>/` and `data/anchors/` (flat or subdirs by preset).
 4. **Tap targets** in scripts and profiles may use **normalized coordinates** `(x, y)` in `[0, 1]`, multiplied by current frame width/height at runtime.
-5. **Image templates** are not auto-scaled; each preset pack needs its own PNG set.
+5. **Image templates** are matched at multiple scales (default 85%–115% of saved PNG size) so minor UI scale drift still matches; large resolution changes still need anchors re-captured at that `display_preset`.
 
 ## Consequences
 

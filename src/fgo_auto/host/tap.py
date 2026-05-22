@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import structlog
 
+from fgo_auto.host.tap_target import get_tap_target
+
 logger = structlog.get_logger()
 
 
@@ -19,6 +21,13 @@ def normalized_to_pixels(
 
 def tap_pixels(coords: tuple[int, int]) -> None:
     import sys
+
+    target = get_tap_target()
+    if sys.platform == "win32" and target is not None:
+        from fgo_auto.host.window_click import post_click
+
+        post_click(target, coords[0], coords[1])
+        return
 
     if sys.platform != "win32":
         logger.info("click_simulated", x=coords[0], y=coords[1])
@@ -43,6 +52,13 @@ def swipe_pixels(
 ) -> None:
     """Drag on screen (e.g. scroll a vertical quest list)."""
     import sys
+
+    target = get_tap_target()
+    if sys.platform == "win32" and target is not None:
+        from fgo_auto.host.window_click import post_swipe
+
+        post_swipe(target, start, end, duration_s=duration_s)
+        return
 
     if sys.platform != "win32":
         logger.info("swipe_simulated", start=start, end=end)

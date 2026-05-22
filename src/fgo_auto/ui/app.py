@@ -13,10 +13,18 @@ from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService
 from fgo_auto.services.paths import default_profile_dir, logs_dir
 from fgo_auto.services.catalog_service import count_templates
-from fgo_auto.services.quest_flow_service import list_quest_profiles
+from fgo_auto.services.quest_flow_service import list_user_quest_profiles
 from fgo_auto.services.run_service import RunEventType, RunService
 from fgo_auto.services.run_setup import create_run_stack
-from fgo_auto.ui.pages import CatalogPage, FlowPage, LogsPage, PreviewPage, RunPage, SettingsPage
+from fgo_auto.ui.pages import (
+    AnchorsPage,
+    CatalogPage,
+    FlowPage,
+    LogsPage,
+    PreviewPage,
+    RunPage,
+    SettingsPage,
+)
 from fgo_auto.ui.state import AppState
 from fgo_auto.ui.strings_zh import recognition_pause_hint, screen_state_label, translate_message
 from fgo_auto.ui.widgets import WindowPickerFrame
@@ -50,6 +58,7 @@ class FgoAutoApp(ctk.CTk):
 
         tab_run = self._tabs.add("執行")
         tab_flow = self._tabs.add("流程設定")
+        tab_anchors = self._tabs.add("圖示庫")
         tab_settings = self._tabs.add("設定")
         tab_preview = self._tabs.add("預覽")
         tab_logs = self._tabs.add("日誌")
@@ -80,11 +89,17 @@ class FgoAutoApp(ctk.CTk):
         )
         self._flow_page.pack(fill="both", expand=True)
 
+        self._anchors_page = AnchorsPage(
+            tab_anchors,
+            on_go_preview=lambda: self._focus_tab("預覽"),
+        )
+        self._anchors_page.pack(fill="both", expand=True)
+
         self._preview_page = PreviewPage(
             tab_preview,
             on_capture=self._capture_preview,
             get_quest_id=self._preview_quest_id,
-            on_anchor_saved=self._flow_page.reload,
+            on_anchor_saved=self._on_anchor_saved,
         )
         self._preview_page.pack(fill="both", expand=True)
 
@@ -116,11 +131,8 @@ class FgoAutoApp(ctk.CTk):
         self._refresh_run_flow_status()
 
     def _refresh_run_quest_menu(self) -> None:
-        entries = list_quest_profiles()
-        items = [
-            (e.quest_id, f"{e.display_name or e.quest_id}" + (" ·本機" if e.is_user_copy else ""))
-            for e in entries
-        ]
+        entries = list_user_quest_profiles()
+        items = [(e.quest_id, f"{e.display_name or e.quest_id}") for e in entries]
         active = self._state.run_config.quest_profile if self._state.run_config else None
         if self._state.editing_quest_id:
             active = self._state.editing_quest_id
@@ -161,6 +173,19 @@ class FgoAutoApp(ctk.CTk):
     def _on_flow_quest_selected(self, quest_id: str) -> None:
         self._state.editing_quest_id = quest_id
         self._preview_page.refresh_quest()
+        self._anchors_page.select_quest(quest_id)
+
+    def _on_anchor_saved(self) -> None:
+        self._flow_page.reload()
+        self._anchors_page.reload()
+        self._flow_page.refresh_anchor_choices()
+
+    def _focus_tab(self, tab_name: str, quest_id: str | None = None) -> None:
+        self._tabs.set(tab_name)
+        if quest_id:
+            self._state.editing_quest_id = quest_id
+            self._anchors_page.select_quest(quest_id)
+            self._preview_page.refresh_quest()
 
     def _apply_quest_profile(self, quest_id: str) -> None:
         if self._state.run_config is None:
@@ -175,6 +200,7 @@ class FgoAutoApp(ctk.CTk):
         self._settings_page.load_config(cfg)
         self._state.editing_quest_id = quest_id
         self._preview_page.refresh_quest()
+        self._anchors_page.select_quest(quest_id)
         self._refresh_run_quest_menu()
 
     def _on_window_selected(self, handle: int, title: str) -> None:

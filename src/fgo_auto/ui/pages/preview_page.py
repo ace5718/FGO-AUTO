@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
+from tkinter import messagebox
 from typing import Callable
 
 import customtkinter as ctk
@@ -35,14 +36,12 @@ class PreviewPage(ctk.CTkFrame):
         self._drag_start: tuple[int, int] | None = None
         self._tk_image: ImageTk.PhotoImage | None = None
         self._anchor_names: list[str] = []
+        self._capture_path: Path | None = None
 
         top = ctk.CTkFrame(self)
         top.pack(fill="x", padx=12, pady=12)
         ctk.CTkButton(top, text="擷圖", width=72, command=self._capture).pack(side="left", padx=(0, 8))
-
-        self._quest_lbl = ctk.CTkLabel(top, text="關卡：—", width=200, anchor="w")
-        self._quest_lbl.pack(side="left", padx=(0, 8))
-
+        ctk.CTkLabel(top, text="圖示", width=36, anchor="w").pack(side="left")
         self._anchor_pick = ctk.CTkOptionMenu(top, values=[_NEW_ANCHOR], width=160, command=self._on_anchor_pick)
         self._anchor_pick.pack(side="left", padx=(0, 4))
         self._anchor_new = ctk.CTkEntry(top, width=120, placeholder_text="新名稱")
@@ -53,7 +52,7 @@ class PreviewPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self,
-            text="與「流程設定」同一關卡。先在那裡選本機關卡並「套用設定」，再來這裡擷圖存圖示。",
+            text="擷圖直接從模擬器視窗擷取遊戲區（本程式疊在上面也不會被截進去）。先「流程設定」套用設定再擷圖。",
             anchor="w",
             wraplength=900,
             text_color="#aaaaaa",
@@ -74,7 +73,9 @@ class PreviewPage(ctk.CTkFrame):
         self._canvas.bind("<B1-Motion>", self._on_drag)
         self._canvas.bind("<ButtonRelease-1>", self._on_release)
 
-        self._status = ctk.CTkLabel(self, text="請先在「流程設定」選關卡並套用設定。", anchor="w", wraplength=900)
+        self._status = ctk.CTkLabel(
+            self, text="請先在「流程設定」選本機方案。", anchor="w", wraplength=900
+        )
         self._status.pack(fill="x", padx=12, pady=(0, 12))
 
         self.refresh_quest()
@@ -82,11 +83,11 @@ class PreviewPage(ctk.CTkFrame):
     def refresh_quest(self) -> None:
         quest_id = self._get_quest_id() if self._get_quest_id else None
         if not quest_id:
-            self._quest_lbl.configure(text="關卡：未選（請到流程設定）")
             self._anchor_names = []
             self._anchor_pick.configure(values=[_NEW_ANCHOR])
             self._anchor_pick.set(_NEW_ANCHOR)
             self._on_anchor_pick(_NEW_ANCHOR)
+            self._status.configure(text="請先在「流程設定」選本機方案。")
             return
         try:
             profile_dir = resolve_quest_profile_dir(quest_id)
@@ -95,9 +96,7 @@ class PreviewPage(ctk.CTkFrame):
             self._anchor_pick.configure(values=opts)
             self._anchor_pick.set(opts[1] if len(opts) > 1 else _NEW_ANCHOR)
             self._on_anchor_pick(self._anchor_pick.get())
-            self._quest_lbl.configure(text=f"關卡：{quest_id}")
         except Exception as exc:
-            self._quest_lbl.configure(text=f"關卡：{quest_id}")
             self._status.configure(text=translate_message(str(exc)))
 
     def _on_anchor_pick(self, choice: str) -> None:
@@ -107,18 +106,24 @@ class PreviewPage(ctk.CTkFrame):
             self._anchor_new.pack_forget()
 
     def _resolve_anchor_name(self) -> str:
-        if self._anchor_pick.get() == _NEW_ANCHOR:
+        choice = self._anchor_pick.get().strip()
+        if choice == _NEW_ANCHOR:
             return self._anchor_new.get().strip()
-        return self._anchor_pick.get().strip()
+        if choice.startswith("（"):
+            return ""
+        return choice
 
     def _capture(self) -> None:
         try:
             path = self._on_capture()
+            self._capture_path = path
             self.show_image(path)
             self._selection_thumb = None
-            self._status.configure(text=f"已擷圖：{path.name}。請拖曳框選後儲存。")
+            self._status.configure(text=f"已擷圖：{path}。請拖曳黃框後按「儲存框選」。")
         except Exception as exc:
+            self._capture_path = None
             self._status.configure(text=translate_message(str(exc)))
+            messagebox.showerror("擷圖失敗", translate_message(str(exc)), parent=self.winfo_toplevel())
 
     def show_image(self, path: Path) -> None:
         img = Image.open(path).convert("RGB")
@@ -185,23 +190,41 @@ class PreviewPage(ctk.CTkFrame):
         )
 
     def _save_selection(self) -> None:
+        parent = self.winfo_toplevel()
         name = self._resolve_anchor_name()
         if not name:
-            self._status.configure(text="請選擇或輸入圖示名稱。")
+            msg = "請選擇圖示名稱，或選「新圖示」後輸入英文底線名稱（例如 chaldea_gate）。"
+            self._status.configure(text=msg)
+            messagebox.showwarning("儲存框選", msg, parent=parent)
+            return
+        if self._capture_path is None or not self._capture_path.is_file():
+            msg = "請先按「擷圖」再框選儲存。"
+            self._status.configure(text=msg)
+            messagebox.showwarning("儲存框選", msg, parent=parent)
             return
         if self._selection_thumb is None:
-            self._status.configure(text="請先在圖上用滑鼠拖曳框選區域。")
+            msg = "請先在預覽圖上用滑鼠拖曳出黃色框。"
+            self._status.configure(text=msg)
+            messagebox.showwarning("儲存框選", msg, parent=parent)
             return
         quest_id = self._get_quest_id() if self._get_quest_id else None
         if not quest_id:
-            self._status.configure(text="請先到「流程設定」選本機關卡並按「套用設定」。")
+            msg = "請先到「流程設定」選本機方案（選了即可，不必只改 run.yaml）。"
+            self._status.configure(text=msg)
+            messagebox.showwarning("儲存框選", msg, parent=parent)
             return
         try:
             rect = self._thumb_rect_to_full()
-            path = save_quest_anchor_crop(quest_id, name, rect)
-            self._status.configure(text=f"已存圖示：{path}（流程設定可選此名稱）")
+            out = save_quest_anchor_crop(
+                quest_id, name, rect, frame_path=self._capture_path
+            )
+            msg = f"已存圖示：\n{out}\n\n流程設定裡的「點擊／往下滑找」可選「{name}」。"
+            self._status.configure(text=f"已存圖示 {name} → {out}")
+            messagebox.showinfo("儲存成功", msg, parent=parent)
             self.refresh_quest()
             if self._on_anchor_saved:
                 self._on_anchor_saved()
         except Exception as exc:
-            self._status.configure(text=translate_message(str(exc)))
+            text = translate_message(str(exc))
+            self._status.configure(text=text)
+            messagebox.showerror("儲存失敗", text, parent=parent)

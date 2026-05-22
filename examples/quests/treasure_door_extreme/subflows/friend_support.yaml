@@ -1,0 +1,8 @@
+# 找好友：選職階 → 更新重找 → 點目標好友
+steps:
+  - action: tap_anchor
+    name: friend_class_all
+  - action: refresh_until_anchor
+    name: friend_target
+    max_attempts: 20
+    refresh_anchor: friend_refresh

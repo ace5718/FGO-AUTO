@@ -1,0 +1,11 @@
+# 進入關卡：迦勒底之門 → 每日 → 寶物庫之門（極）
+steps:
+  - action: tap_anchor
+    name: chaldea_gate
+  - action: wait_screen
+    state: main
+    timeout_s: 10
+  - action: tap_anchor
+    name: daily_quests
+  - action: tap_anchor
+    name: door_treasure_extreme

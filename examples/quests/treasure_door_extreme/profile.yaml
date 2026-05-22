@@ -3,10 +3,3 @@ display_name: 每日寶物庫之門（極）
 navigation_script: navigation.yaml
 battle_script: battle.yaml
 party_slot: 1
-friend_support:
-  # v0.2: tap sequence or filters; calibrate anchors per display preset
-  mode: anchor_sequence
-  steps:
-    - tap: friend_list_open
-    - tap: friend_slot_1
-    - tap: friend_confirm

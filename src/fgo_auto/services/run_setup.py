@@ -47,16 +47,23 @@ def create_capture(
 
 
 def _quest_anchor_paths(quest_id: str, base_anchors: dict[str, Path]) -> dict[str, Path]:
+    from fgo_auto.services.paths import data_root
+
+    merged = dict(base_anchors)
+    shared = data_root() / "anchors"
+    if shared.is_dir():
+        for png in shared.glob("*.png"):
+            if png.is_file() and not png.name.startswith("_"):
+                merged.setdefault(png.stem, png)
     try:
         quest_dir = resolve_quest_profile_dir(quest_id)
     except Exception:
-        return base_anchors
+        return merged
     quest_anchors_dir = quest_dir / "anchors"
-    if not quest_anchors_dir.is_dir():
-        return base_anchors
-    quest_map = {p.stem: p for p in quest_anchors_dir.glob("*.png")}
-    merged = dict(base_anchors)
-    merged.update(quest_map)
+    if quest_anchors_dir.is_dir():
+        for png in quest_anchors_dir.glob("*.png"):
+            if png.is_file():
+                merged[png.stem] = png
     return merged
 
 

@@ -8,8 +8,11 @@ from pydantic import BaseModel, Field
 
 
 class FriendSupportConfig(BaseModel):
+    """Friend support picker: class tab → find friend (CE/servant) → refresh until found → tap."""
+
     mode: Literal["anchor_sequence"] = "anchor_sequence"
-    steps: list[dict[str, str]] = Field(default_factory=list)
+    max_refresh_attempts: int = Field(default=20, ge=1, le=60)
+    steps: list[dict[str, str | int | float]] = Field(default_factory=list)
 
 
 class QuestProfile(BaseModel):
@@ -45,13 +48,29 @@ class DelayStep(BaseModel):
     seconds: float = 0.5
 
 
+class RefreshUntilAnchorStep(BaseModel):
+    """Tap refresh until anchor appears (e.g. friend list)."""
+
+    action: Literal["refresh_until_anchor"] = "refresh_until_anchor"
+    name: str
+    max_attempts: int = Field(default=20, ge=1, le=60)
+    refresh_anchor: str = "friend_refresh"
+
+
 class RunSubflowStep(BaseModel):
     action: Literal["run_subflow"] = "run_subflow"
     ref: str
+    repeat: int = Field(default=1, ge=1, le=99)
+    interval_s: float = Field(default=0.5, ge=0)
 
 
 NavigationStep = Annotated[
-    TapAnchorStep | ScrollUntilAnchorStep | WaitScreenStep | DelayStep | RunSubflowStep,
+    TapAnchorStep
+    | ScrollUntilAnchorStep
+    | RefreshUntilAnchorStep
+    | WaitScreenStep
+    | DelayStep
+    | RunSubflowStep,
     Field(discriminator="action"),
 ]
 

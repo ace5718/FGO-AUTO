@@ -7,7 +7,9 @@ def test_load_treasure_door_extreme_profile() -> None:
     profile, navigation, battle, profile_dir = load_quest_bundle("treasure_door_extreme")
     assert profile.quest_id == "treasure_door_extreme"
     assert profile_dir.name == "treasure_door_extreme"
-    assert len(navigation.steps) >= 5
+    assert len(navigation.steps) == 4
+    assert (profile_dir / "subflows" / "enter_quest.yaml").is_file()
+    assert (profile_dir / "subflows" / "friend_support.yaml").is_file()
     assert len(battle.turns) == 2
     assert battle.turns[0].actions[0].type == "servant_skill"
 
