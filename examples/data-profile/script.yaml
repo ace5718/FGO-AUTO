@@ -1,0 +1,2 @@
+anchors:
+  enter_quest: ../../../tests/fixtures/anchors/enter_quest.png

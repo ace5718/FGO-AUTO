@@ -22,10 +22,31 @@ Manual steps:
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,windows]"
+python -m pip install -e ".[dev,windows,gui]"
 ```
 
 Always activate `venv` before running `fgo-auto` or `pytest`. Cursor terminal: select the Python interpreter at `venv\Scripts\python.exe`.
+
+
+## Desktop app (GUI)
+
+Local **CustomTkinter** window; data stays on disk under `data/` ([ADR-0004](docs/adr/0004-desktop-ui-customtkinter.md)).
+
+```powershell
+pip install -e ".[dev,windows,gui]"
+.\scripts\init-local-profile.ps1
+fgo-auto-gui
+```
+
+| Tab | Purpose |
+|-----|---------|
+| Run | Window pick, Start / Manual stop, Screen state |
+| 設定 | Edit and save `data/profiles/default/run.yaml` |
+| 預覽 | Capture frame thumbnail to `logs/frame.png` |
+| 日誌 | Live structlog output |
+| Catalog | Phase 2 stub |
+
+Manual checklist: [docs/manual-test-gui.md](docs/manual-test-gui.md).
 
 ## Operator quick start (v1 CLI)
 

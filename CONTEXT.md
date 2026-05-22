@@ -142,3 +142,12 @@ _Avoid_: window menu, selector UI
 - A Run ends normally when Loop limit, AP check finds insufficient AP, or Manual stop occurs
 - A Script declares Script anchors; a Run may apply Run anchor overrides to form the Anchor set
 - A Script may use one or more Quest anchors from the Anchor set before entering a Quest loop
+
+### Local data root
+The default on-disk workspace for the Desktop app and GUI-edited profiles: data/profiles/<name>/ (run.yaml, script.yaml), data/anchors/ (Phase 2), and logs/ for pause screenshots and frame diagnostics. Not committed; seed from examples/data-profile/ via scripts/init-local-profile.ps1.
+_Avoid:_ cloud sync of data/ without operator consent.
+
+### Desktop app
+CustomTkinter local window (go-auto-gui) for Run control, Run config editing, capture preview, and logs. Shares the same service layer as the CLI.
+_Avoid:_ running GUI integration tests in headless CI.
+

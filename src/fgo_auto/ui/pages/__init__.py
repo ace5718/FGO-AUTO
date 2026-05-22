@@ -1,0 +1,7 @@
+from fgo_auto.ui.pages.catalog_page import CatalogPage
+from fgo_auto.ui.pages.logs_page import LogsPage
+from fgo_auto.ui.pages.preview_page import PreviewPage
+from fgo_auto.ui.pages.run_page import RunPage
+from fgo_auto.ui.pages.settings_page import SettingsPage
+
+__all__ = ["CatalogPage", "LogsPage", "PreviewPage", "RunPage", "SettingsPage"]

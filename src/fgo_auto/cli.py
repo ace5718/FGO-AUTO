@@ -9,14 +9,20 @@ import structlog
 import typer
 
 from fgo_auto import __version__
-from fgo_auto.host.capture import CaptureError, FixtureHostCapture, create_host_capture
-from fgo_auto.host.window_binder import WindowBindingError, create_window_binder
+from fgo_auto.host.capture import CaptureError
+from fgo_auto.host.window_binder import WindowBindingError
 from fgo_auto.logging_setup import configure_logging
-from fgo_auto.run.anchor_set import merge_anchor_set
-from fgo_auto.run.controller import RunController, RunOutcome
-from fgo_auto.run_config import ConfigError, load_run_config, load_script_config
-from fgo_auto.script.ap_reader import FakeAPReader, TemplateAPReader
+from fgo_auto.run.controller import RunOutcome
+from fgo_auto.run_config import ConfigError
+from fgo_auto.run.controller import RunController
+from fgo_auto.script.ap_reader import FakeAPReader
 from fgo_auto.script.engine import ScriptEngine
+from fgo_auto.services.run_setup import create_capture
+from fgo_auto.services.capture_service import CaptureService
+from fgo_auto.services.config_service import ConfigService
+from fgo_auto.services.paths import catalog_dir, default_run_config_path, logs_dir
+from fgo_auto.services.run_setup import create_run_stack, load_context
+from fgo_auto.services.window_service import WindowService
 from fgo_auto.vision.image_match import ImageMatch
 from fgo_auto.vision.state_catalog import StateCatalog
 
@@ -27,31 +33,8 @@ app.add_typer(config_app, name="config")
 logger = structlog.get_logger()
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _default_catalog_dir() -> Path:
-    candidate = _repo_root() / "catalog"
-    if candidate.is_dir():
-        return candidate
-    return _repo_root() / "tests" / "fixtures" / "catalog"
-
-
 def _resolve_config_path(config: Path) -> Path:
     return config.expanduser().resolve()
-
-
-def _load_merged_config(config_path: Path):
-    config = load_run_config(config_path)
-    base = config_path.parent
-    script_anchors: dict[str, str] = {}
-    if config.script_config:
-        script_anchors = load_script_config(
-            Path(config.script_config) if Path(config.script_config).is_absolute() else base / config.script_config
-        )
-    anchors = merge_anchor_set(script_anchors, config.anchors, base_dir=base)
-    return config, anchors
 
 
 @app.command("version")
@@ -65,8 +48,9 @@ def config_validate(
 ) -> None:
     """Load and validate a Run config."""
     try:
-        run_config = load_run_config(_resolve_config_path(config_path))
-        typer.echo(json.dumps(run_config.summary(), indent=2))
+        svc = ConfigService()
+        run_config = svc.load_run(_resolve_config_path(config_path))
+        typer.echo(json.dumps(svc.validate_run(run_config), indent=2))
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -77,11 +61,9 @@ def window_pick(
     title_rule: str = typer.Option(..., "--rule", help="Window title rule"),
 ) -> None:
     """List matching windows and bind by numeric choice (Window pick)."""
-    from fgo_auto.host.window_binder import _matches_rule
-
-    binder = create_window_binder()
+    svc = WindowService()
     try:
-        windows = [w for w in binder.list_windows() if _matches_rule(w.title, title_rule)]
+        windows = svc.list_matching(title_rule)
     except Exception as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -90,7 +72,9 @@ def window_pick(
         typer.echo(f"No windows matched: {title_rule!r}", err=True)
         raise typer.Exit(1)
     for index, window in enumerate(windows, start=1):
-        typer.echo(f"[{index}] handle={window.handle} {window.width}x{window.height} {window.title!r}")
+        typer.echo(
+            f"[{index}] handle={window.handle} {window.width}x{window.height} {window.title!r}"
+        )
     choice = typer.prompt("Select window number", type=int)
     if choice < 1 or choice > len(windows):
         typer.echo("Invalid selection", err=True)
@@ -109,19 +93,19 @@ def capture_frame(
     """Capture one frame from the bound Host window."""
     configure_logging()
     try:
-        config, _ = _load_merged_config(_resolve_config_path(config_path))
+        merged = load_context(_resolve_config_path(config_path))
+        cap_svc = CaptureService(log_dir=logs_dir())
         if fixture:
-            capture = FixtureHostCapture(fixture, preset=config.display_preset)
+            cap_svc.use_fixture(fixture, merged.config.display_preset)
         else:
-            binder = create_window_binder()
-            window = binder.resolve(config.window_title_rule, pick_handle=pick_handle)
-            capture = create_host_capture(window, config.display_preset)
-        frame = capture.capture()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        import cv2
-
-        cv2.imwrite(str(output), frame.data)
-        typer.echo(f"Saved {output} ({frame.width}x{frame.height})")
+            cap_svc.bind(
+                merged.config.window_title_rule,
+                pick_handle,
+                merged.config.display_preset,
+            )
+        frame = cap_svc.capture_frame()
+        path = cap_svc.save_frame(frame, output)
+        typer.echo(f"Saved {path} ({frame.width}x{frame.height})")
     except (ConfigError, WindowBindingError, CaptureError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -130,7 +114,7 @@ def capture_frame(
 @app.command("detect")
 def detect_loop(
     config_path: Path = typer.Option(..., "--config", "-c"),
-    catalog_dir: Optional[Path] = typer.Option(None, "--catalog-dir"),
+    catalog_dir_opt: Optional[Path] = typer.Option(None, "--catalog-dir"),
     iterations: int = typer.Option(5, "--iterations", "-n"),
     fixture: Optional[Path] = typer.Option(None, "--fixture"),
     pick_handle: Optional[int] = typer.Option(None, "--pick-handle"),
@@ -138,19 +122,18 @@ def detect_loop(
     """Detect-only loop: log Screen state transitions."""
     configure_logging()
     try:
-        config, _ = _load_merged_config(_resolve_config_path(config_path))
-        catalog_path = catalog_dir or _default_catalog_dir()
-        catalog = StateCatalog.from_directory(catalog_path)
-        if fixture:
-            capture = FixtureHostCapture(fixture, preset=config.display_preset)
-        else:
-            binder = create_window_binder()
-            window = binder.resolve(config.window_title_rule, pick_handle=pick_handle)
-            capture = create_host_capture(window, config.display_preset)
+        merged = load_context(_resolve_config_path(config_path))
+        catalog = StateCatalog.from_directory(catalog_dir_opt or catalog_dir())
+        capture = create_capture(
+            merged.config,
+            fixture=fixture,
+            pick_handle=pick_handle,
+        )
         controller = RunController(
             catalog=catalog,
             capture=capture,
-            recognition_retries=config.recognition_retries,
+            recognition_retries=merged.config.recognition_retries,
+            log_dir=logs_dir(),
         )
         for i in range(iterations):
             state = controller.detect_screen_state()
@@ -172,29 +155,33 @@ def tap_anchor(
     """Find one Quest anchor on the current frame and tap its center."""
     configure_logging()
     try:
-        config, anchors = _load_merged_config(_resolve_config_path(config_path))
-        if name not in anchors:
+        merged = load_context(_resolve_config_path(config_path))
+        if name not in merged.anchors:
             raise ConfigError(f"Anchor not in Anchor set: {name}")
-        if fixture:
-            capture = FixtureHostCapture(fixture, preset=config.display_preset)
-        else:
-            binder = create_window_binder()
-            window = binder.resolve(config.window_title_rule, pick_handle=pick_handle)
-            capture = create_host_capture(window, config.display_preset)
+        capture = create_capture(
+            merged.config,
+            fixture=fixture,
+            pick_handle=pick_handle,
+        )
         frame = capture.capture()
         matcher = ImageMatch()
-        match = matcher.find(frame, anchors[name])
+        match = matcher.find(frame, merged.anchors[name])
         if match is None:
             typer.echo(f"No match for anchor {name!r}", err=True)
             raise typer.Exit(1)
         typer.echo(f"match score={match.score:.3f} center={match.center}")
         engine = ScriptEngine(
-            controller=RunController(catalog=StateCatalog.from_directory(_default_catalog_dir()), capture=capture, recognition_retries=1),
+            controller=RunController(
+                catalog=StateCatalog.from_directory(catalog_dir()),
+                capture=capture,
+                recognition_retries=1,
+                log_dir=logs_dir(),
+            ),
             capture=capture,
             matcher=matcher,
             ap_reader=FakeAPReader(),
-            anchor_paths=anchors,
-            loop_limit=config.loop_limit,
+            anchor_paths=merged.anchors,
+            loop_limit=merged.config.loop_limit,
         )
         engine._click(match.center)
     except (ConfigError, WindowBindingError, CaptureError) as exc:
@@ -204,9 +191,9 @@ def tap_anchor(
 
 @app.command("run")
 def run_cmd(
-    config_path: Path = typer.Option(..., "--config", "-c"),
-    catalog_dir: Optional[Path] = typer.Option(None, "--catalog-dir"),
-    fixture: Optional[Path] = typer.Option(None, "--fixture", help="Offline run with PNG sequence directory or single image"),
+    config_path: Path = typer.Option(default_run_config_path(), "--config", "-c"),
+    catalog_dir_opt: Optional[Path] = typer.Option(None, "--catalog-dir"),
+    fixture: Optional[Path] = typer.Option(None, "--fixture", help="Offline run with PNG fixture"),
     pick_handle: Optional[int] = typer.Option(None, "--pick-handle"),
     ap_insufficient_template: Optional[Path] = typer.Option(None, "--ap-insufficient-template"),
     battle_assist_template: Optional[Path] = typer.Option(None, "--battle-assist-template"),
@@ -214,30 +201,13 @@ def run_cmd(
     """Start a Run (Quest loop v0)."""
     configure_logging()
     try:
-        config, anchors = _load_merged_config(_resolve_config_path(config_path))
-        catalog_path = catalog_dir or _default_catalog_dir()
-        catalog = StateCatalog.from_directory(catalog_path)
-
-        if fixture:
-            capture = FixtureHostCapture(fixture, preset=config.display_preset)
-        else:
-            binder = create_window_binder()
-            window = binder.resolve(config.window_title_rule, pick_handle=pick_handle)
-            capture = create_host_capture(window, config.display_preset)
-
-        controller = RunController(
-            catalog=catalog,
-            capture=capture,
-            recognition_retries=config.recognition_retries,
-        )
-        ap_reader = TemplateAPReader(ap_insufficient_template) if ap_insufficient_template else FakeAPReader(True)
-        engine = ScriptEngine(
-            controller=controller,
-            capture=capture,
-            matcher=ImageMatch(),
-            ap_reader=ap_reader,
-            anchor_paths=anchors,
-            loop_limit=config.loop_limit,
+        merged = load_context(_resolve_config_path(config_path))
+        engine, controller = create_run_stack(
+            merged,
+            fixture=fixture,
+            pick_handle=pick_handle,
+            catalog_path=catalog_dir_opt,
+            ap_insufficient_template=ap_insufficient_template,
             battle_assist_template=battle_assist_template,
         )
 

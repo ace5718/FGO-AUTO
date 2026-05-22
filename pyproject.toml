@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = [
+  "customtkinter>=5.2",
+  "Pillow>=10",
+]
 windows = [
   "mss>=9",
   "pywin32>=306",
@@ -31,6 +35,7 @@ dev = [
 
 [project.scripts]
 fgo-auto = "fgo_auto.cli:app"
+fgo-auto-gui = "fgo_auto.ui.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fgo_auto"]
@@ -40,6 +45,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "win32: requires Windows and emulator window",
+    "gui: requires display and CustomTkinter",
 ]
 
 [tool.ruff]
