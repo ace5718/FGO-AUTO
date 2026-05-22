@@ -8,22 +8,24 @@ import customtkinter as ctk
 
 from fgo_auto.logging_setup import configure_logging
 from fgo_auto.run.controller import RunOutcome
-from fgo_auto.run_config import RunConfig
+from fgo_auto.run.run_config import RunConfig
 from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService
 from fgo_auto.services.paths import default_profile_dir, logs_dir
+from fgo_auto.services.quest_flow_service import list_quest_profiles
 from fgo_auto.services.run_service import RunEventType, RunService
 from fgo_auto.services.run_setup import create_run_stack
 from fgo_auto.ui.logging_bridge import attach_queue_handler
-from fgo_auto.ui.pages import CatalogPage, LogsPage, PreviewPage, RunPage, SettingsPage
+from fgo_auto.ui.pages import CatalogPage, FlowPage, LogsPage, PreviewPage, RunPage, SettingsPage
 from fgo_auto.ui.state import AppState
+from fgo_auto.ui.strings_zh import translate_message
 from fgo_auto.ui.widgets import WindowPickerFrame
 
 
 class FgoAutoApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("FGO-AUTO")
+        self.title("FGO-AUTO 自動化")
         self.geometry("1000x720")
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
@@ -40,22 +42,29 @@ class FgoAutoApp(ctk.CTk):
 
         self._build_ui()
         self._load_profile()
+        self._refresh_run_quest_menu()
         self.after(100, self._poll_run_events)
 
     def _build_ui(self) -> None:
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=12, pady=12)
 
-        tab_run = self._tabs.add("Run")
+        tab_run = self._tabs.add("執行")
+        tab_flow = self._tabs.add("流程設定")
         tab_settings = self._tabs.add("設定")
         tab_preview = self._tabs.add("預覽")
         tab_logs = self._tabs.add("日誌")
-        tab_catalog = self._tabs.add("Catalog")
+        tab_catalog = self._tabs.add("模板庫")
 
         self._window_picker = WindowPickerFrame(tab_run, on_select=self._on_window_selected)
         self._window_picker.pack(fill="x", padx=8, pady=8)
 
-        self._run_page = RunPage(tab_run, on_start=self._start_run, on_stop=self._stop_run)
+        self._run_page = RunPage(
+            tab_run,
+            on_start=self._start_run,
+            on_stop=self._stop_run,
+            on_apply_run_quest=self._apply_run_quest,
+        )
         self._run_page.pack(fill="both", expand=True)
 
         self._settings_page = SettingsPage(
@@ -65,7 +74,19 @@ class FgoAutoApp(ctk.CTk):
         )
         self._settings_page.pack(fill="both", expand=True)
 
-        self._preview_page = PreviewPage(tab_preview, on_capture=self._capture_preview)
+        self._flow_page = FlowPage(
+            tab_flow,
+            on_apply_quest_profile=self._apply_quest_profile,
+            on_quest_selected=self._on_flow_quest_selected,
+        )
+        self._flow_page.pack(fill="both", expand=True)
+
+        self._preview_page = PreviewPage(
+            tab_preview,
+            on_capture=self._capture_preview,
+            get_quest_id=self._preview_quest_id,
+            on_anchor_saved=self._flow_page.reload,
+        )
         self._preview_page.pack(fill="both", expand=True)
 
         self._logs_page = LogsPage(tab_logs, self._log_queue)
@@ -74,7 +95,10 @@ class FgoAutoApp(ctk.CTk):
         self._catalog_page = CatalogPage(tab_catalog)
         self._catalog_page.pack(fill="both", expand=True)
 
-        footer = ctk.CTkLabel(self, text=f"Local data root: {self._state.profile_dir.parent.parent}")
+        footer = ctk.CTkLabel(
+            self,
+            text=f"本機資料目錄：{self._state.profile_dir.parent.parent}",
+        )
         footer.pack(anchor="w", padx=16, pady=(0, 8))
 
     def _load_profile(self) -> None:
@@ -84,15 +108,75 @@ class FgoAutoApp(ctk.CTk):
             self._settings_page.load_config(cfg)
             self._window_picker.set_rule(cfg.window_title_rule)
         except Exception as exc:
-            self._run_page.update_status(message=f"載入設定失敗：{exc}")
+            self._run_page.update_status(message=f"載入設定失敗：{translate_message(str(exc))}")
 
     def _save_config(self, config: RunConfig) -> None:
         self._config_svc.save_run(config)
         self._state.run_config = config
         self._window_picker.set_rule(config.window_title_rule)
+        self._refresh_run_flow_status()
+
+    def _refresh_run_quest_menu(self) -> None:
+        entries = list_quest_profiles()
+        items = [
+            (e.quest_id, f"{e.display_name or e.quest_id}" + (" ·本機" if e.is_user_copy else ""))
+            for e in entries
+        ]
+        active = self._state.run_config.quest_profile if self._state.run_config else None
+        if self._state.editing_quest_id:
+            active = self._state.editing_quest_id
+        self._run_page.set_quest_choices(items, active)
+        self._refresh_run_flow_status()
+
+    def _refresh_run_flow_status(self) -> None:
+        cfg = self._state.run_config
+        if cfg is None:
+            return
+        self._run_page.show_active_flow(cfg.quest_profile, cfg.script_version)
+
+    def _apply_run_quest(self, quest_id: str) -> None:
+        self._apply_quest_profile(quest_id)
+        try:
+            if self._state.run_config:
+                self._config_svc.save_run(self._state.run_config)
+            self._refresh_run_flow_status()
+            self._run_page.update_status(message=f"已套用流程 {quest_id} 並寫入設定，可開始執行")
+        except Exception as exc:
+            self._run_page.update_status(message=translate_message(str(exc)))
 
     def _validate_config(self, config: RunConfig) -> dict:
         return self._config_svc.validate_run(config)
+
+    def _current_quest_id(self) -> str | None:
+        cfg = self._state.run_config
+        if cfg is None or not cfg.quest_profile:
+            return None
+        text = str(cfg.quest_profile).strip()
+        return text or None
+
+    def _preview_quest_id(self) -> str | None:
+        if self._state.editing_quest_id:
+            return self._state.editing_quest_id
+        return self._current_quest_id()
+
+    def _on_flow_quest_selected(self, quest_id: str) -> None:
+        self._state.editing_quest_id = quest_id
+        self._preview_page.refresh_quest()
+
+    def _apply_quest_profile(self, quest_id: str) -> None:
+        if self._state.run_config is None:
+            try:
+                self._state.run_config = self._config_svc.load_run()
+            except Exception:
+                return
+        cfg = self._state.run_config.model_copy(
+            update={"quest_profile": quest_id, "script_version": "v2"}
+        )
+        self._state.run_config = cfg
+        self._settings_page.load_config(cfg)
+        self._state.editing_quest_id = quest_id
+        self._preview_page.refresh_quest()
+        self._refresh_run_quest_menu()
 
     def _on_window_selected(self, handle: int, title: str) -> None:
         self._state.pick_handle = handle
@@ -100,23 +184,34 @@ class FgoAutoApp(ctk.CTk):
 
     def _capture_preview(self) -> Path:
         if self._state.run_config is None:
-            raise RuntimeError("請先載入 Run config")
+            raise RuntimeError("請先在「設定」分頁載入並儲存 Run 設定")
         cfg = self._state.run_config
         if self._state.pick_handle is None:
-            raise RuntimeError("請先在 Run 分頁選擇視窗")
+            raise RuntimeError("請先在「執行」分頁綁定 BlueStacks 視窗")
         self._capture_svc.bind(cfg.window_title_rule, self._state.pick_handle, cfg.display_preset)
         frame = self._capture_svc.capture_frame()
         path = self._capture_svc.save_frame(frame, "frame.png")
         self._state.last_capture_path = path
+        self._config_svc.save_preview_frame(path)
         return path
 
     def _start_run(self) -> str:
         if self._run_svc and self._run_svc.is_running():
-            return "Run 已在執行中"
+            return "已有執行中的 Run，請先按「手動停止」"
         if self._state.run_config is None:
-            return "請先儲存 Run 設定"
+            return "請先在「設定」分頁儲存 Run 設定"
         if self._state.pick_handle is None:
-            return "請先綁定 BlueStacks 視窗"
+            return "請先在「執行」分頁選擇 BlueStacks 視窗"
+        quest_id = self._run_page.selected_quest_id() or self._state.editing_quest_id
+        if quest_id:
+            self._apply_quest_profile(quest_id)
+            try:
+                self._config_svc.save_run(self._state.run_config)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        cfg = self._state.run_config
+        if cfg and cfg.script_version == "v2" and not cfg.quest_profile:
+            return "v2 請在「執行」選擇流程並按「套用此流程」，或到流程設定套用後儲存設定"
         try:
             merged = self._config_svc.load_merged()
             engine, _controller = create_run_stack(
@@ -126,9 +221,12 @@ class FgoAutoApp(ctk.CTk):
             self._run_svc = RunService(engine)
             self._run_svc.start()
             self._state.run_active = True
-            return "Run 已啟動（背景執行緒）"
+            return "已開始執行 Run（背景執行緒）"
         except Exception as exc:
-            return f"啟動失敗：{exc}"
+            msg = translate_message(f"啟動失敗：{exc}")
+            self._log_queue.put(msg)
+            self._logs_page.append_line(msg)
+            return msg
 
     def _stop_run(self) -> None:
         if self._run_svc:
@@ -149,9 +247,9 @@ class FgoAutoApp(ctk.CTk):
                     )
                 elif event.type is RunEventType.OUTCOME:
                     self._state.run_active = False
-                    msg = event.message
+                    msg = translate_message(event.message)
                     if event.outcome is RunOutcome.PAUSED:
-                        msg += " — 請查看 logs/pause_screenshot.png"
+                        msg += " — 請查看 logs/pause_screenshot.png（暫停截圖）"
                     self._run_page.update_status(
                         outcome=event.outcome,
                         loops=event.loops_completed,
@@ -159,7 +257,7 @@ class FgoAutoApp(ctk.CTk):
                     )
                 elif event.type is RunEventType.ERROR:
                     self._state.run_active = False
-                    self._run_page.update_status(message=event.message)
+                    self._run_page.update_status(message=translate_message(event.message))
         self.after(200, self._poll_run_events)
 
 

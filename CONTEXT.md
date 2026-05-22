@@ -147,6 +147,22 @@ _Avoid_: window menu, selector UI
 The default on-disk workspace for the Desktop app and GUI-edited profiles: data/profiles/<name>/ (run.yaml, script.yaml), data/anchors/ (Phase 2), and logs/ for pause screenshots and frame diagnostics. Not committed; seed from examples/data-profile/ via scripts/init-local-profile.ps1.
 _Avoid:_ cloud sync of data/ without operator consent.
 
+
+### Quest profile
+Named bundle for one farm route: quest id, navigation script, battle script, party slot, friend support. Stored under data/profiles/quests/ or examples/quests/.
+_Avoid:_ hard-coding quest steps only in Run.yaml without a profile.
+
+### Navigation script
+Declarative steps (tap_anchor, wait_screen, delay) from main menu through deploy. Executed by NavigationEngine in v0.2.
+_Avoid:_ mixing battle actions into navigation YAML.
+
+### Battle turn script
+Per-turn actions: servant_skill, craft_skill, select_cards, noble_phantasm. Executed by BattleScriptEngine in v0.2.
+_Avoid:_ one-shot battle assist only when a full turn script is configured.
+
+### Display preset pack
+State catalog templates for a specific width x height under data/catalog/<width>x<height>/. Pair with RunConfig display_preset.
+_Avoid:_ reusing 1920x1080 templates at other resolutions without a separate pack.
 ### Desktop app
 CustomTkinter local window (go-auto-gui) for Run control, Run config editing, capture preview, and logs. Shares the same service layer as the CLI.
 _Avoid:_ running GUI integration tests in headless CI.

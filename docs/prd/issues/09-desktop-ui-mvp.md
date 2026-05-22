@@ -4,7 +4,7 @@ GitHub: ace5718/FGO-AUTO#9
 
 ## Status
 
-Implemented in repo (service layer + `fgo-auto-gui`). Close #9 after merge to `main`.
+已關閉 (service layer + `fgo-auto-gui`). 已關閉 to `main`.
 
 ## Acceptance (maps to #9)
 

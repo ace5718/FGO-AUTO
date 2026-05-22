@@ -29,11 +29,22 @@ def logs_dir() -> Path:
     return repo_root() / "logs"
 
 
-def catalog_dir() -> Path:
-    candidate = repo_root() / "catalog"
-    if candidate.is_dir():
-        return candidate
+def catalog_dir_for_preset(width: int, height: int) -> Path:
+    """Preset-specific catalog under data/catalog/{w}x{h}/, with fallbacks."""
+    preset_dir = data_root() / "catalog" / f"{width}x{height}"
+    if preset_dir.is_dir():
+        return preset_dir
+    legacy = repo_root() / "catalog"
+    if legacy.is_dir():
+        return legacy
+    fixture_v02 = repo_root() / "tests" / "fixtures" / "catalog_v02"
+    if fixture_v02.is_dir():
+        return fixture_v02
     return repo_root() / "tests" / "fixtures" / "catalog"
+
+
+def catalog_dir() -> Path:
+    return catalog_dir_for_preset(1920, 1080)
 
 
 def ensure_profile_layout(profile_dir: Path | None = None) -> Path:

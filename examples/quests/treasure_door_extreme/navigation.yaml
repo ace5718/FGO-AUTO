@@ -1,0 +1,17 @@
+# 迦勒底之門 → 每日任務 → 打開寶物庫之門（極）→ 好友 → 編隊 → 出擊
+steps:
+  - action: tap_anchor
+    name: chaldea_gate
+  - action: wait_screen
+    state: main
+    timeout_s: 10
+  - action: tap_anchor
+    name: daily_quests
+  - action: tap_anchor
+    name: door_treasure_extreme
+  - action: run_subflow
+    ref: friend_support
+  - action: tap_anchor
+    name: party_slot_1
+  - action: tap_anchor
+    name: deploy_confirm

@@ -71,7 +71,7 @@ class WindowHostCapture:
         if not frame.matches_display_preset(self._preset):
             raise CaptureError(
                 f"Display preset mismatch: got {frame.width}x{frame.height}, "
-                f"expected {self._preset[0]}x{self._preset[1]}"
+                f"expected {self._preset[0]}x{self._preset[1]} (display_preset={self._preset[0]}x{self._preset[1]})"
             )
         self._last = frame
         return frame

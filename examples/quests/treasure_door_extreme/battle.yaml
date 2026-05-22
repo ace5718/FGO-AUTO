@@ -1,0 +1,15 @@
+battle:
+  turns:
+    - actions:
+        - type: servant_skill
+          slot: 1
+          skill: 3
+        - type: craft_skill
+          skill: 1
+        - type: select_cards
+          cards: [1, 3, 2]
+        - type: noble_phantasm
+          slot: 1
+    - actions:
+        - type: select_cards
+          cards: [2, 2, 1]

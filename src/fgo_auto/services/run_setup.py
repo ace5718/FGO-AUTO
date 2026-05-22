@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Union
 
 from fgo_auto.host.capture import CaptureError, HostCapture
 from fgo_auto.host.window_binder import WindowBinder
+from fgo_auto.quest.loader import resolve_quest_profile_dir
 from fgo_auto.run.controller import RunController
 from fgo_auto.run_config import RunConfig
 from fgo_auto.script.ap_reader import APReader, FakeAPReader, TemplateAPReader
 from fgo_auto.script.engine import ScriptEngine
+from fgo_auto.script.engine_v2 import ScriptEngineV2, create_script_engine_v2
 from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService, MergedRunContext
-from fgo_auto.services.paths import catalog_dir, logs_dir
+from fgo_auto.services.paths import catalog_dir_for_preset, logs_dir
 from fgo_auto.services.run_service import build_script_engine
 from fgo_auto.vision.state_catalog import StateCatalog
+
+ScriptEngineLike = Union[ScriptEngine, ScriptEngineV2]
 
 
 def load_context(config_path: Path | None = None) -> MergedRunContext:
@@ -41,6 +46,20 @@ def create_capture(
     return backend
 
 
+def _quest_anchor_paths(quest_id: str, base_anchors: dict[str, Path]) -> dict[str, Path]:
+    try:
+        quest_dir = resolve_quest_profile_dir(quest_id)
+    except Exception:
+        return base_anchors
+    quest_anchors_dir = quest_dir / "anchors"
+    if not quest_anchors_dir.is_dir():
+        return base_anchors
+    quest_map = {p.stem: p for p in quest_anchors_dir.glob("*.png")}
+    merged = dict(base_anchors)
+    merged.update(quest_map)
+    return merged
+
+
 def create_run_stack(
     merged: MergedRunContext,
     *,
@@ -50,7 +69,8 @@ def create_run_stack(
     ap_insufficient_template: Path | None = None,
     battle_assist_template: Path | None = None,
     binder: WindowBinder | None = None,
-) -> tuple[ScriptEngine, RunController]:
+    quest_profile: str | None = None,
+) -> tuple[ScriptEngineLike, RunController]:
     config = merged.config
     capture = create_capture(
         config,
@@ -58,7 +78,10 @@ def create_run_stack(
         pick_handle=pick_handle,
         binder=binder,
     )
-    catalog = StateCatalog.from_directory(catalog_path or catalog_dir())
+    preset = config.display_preset
+    catalog = StateCatalog.from_directory(
+        catalog_path or catalog_dir_for_preset(preset[0], preset[1])
+    )
     controller = RunController(
         catalog=catalog,
         capture=capture,
@@ -70,6 +93,21 @@ def create_run_stack(
         if ap_insufficient_template
         else FakeAPReader(True)
     )
+
+    effective_quest = quest_profile or config.quest_profile
+    if config.script_version == "v2":
+        if not effective_quest:
+            raise CaptureError("script_version v2 requires quest_profile")
+        anchors = _quest_anchor_paths(effective_quest, merged.anchors)
+        engine = create_script_engine_v2(
+            controller,
+            effective_quest,
+            anchors,
+            loop_limit=config.loop_limit,
+            ap_reader=ap_reader,
+        )
+        return engine, controller
+
     engine = build_script_engine(
         controller,
         merged.anchors,

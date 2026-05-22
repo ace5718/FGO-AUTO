@@ -150,14 +150,6 @@ class ScriptEngine:
             self.phase = ScriptPhase.DETECT
 
     def _click(self, coords: tuple[int, int]) -> None:
-        import sys
+        from fgo_auto.host.tap import tap_pixels
 
-        if sys.platform != "win32":
-            logger.info("click_simulated", x=coords[0], y=coords[1])
-            return
-        try:
-            import pyautogui
-        except ImportError:
-            logger.warning("pyautogui_missing", x=coords[0], y=coords[1])
-            return
-        pyautogui.click(coords[0], coords[1])
+        tap_pixels(coords)

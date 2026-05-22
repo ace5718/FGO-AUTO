@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from fgo_auto.run_config import RunConfig
+from fgo_auto.run.run_config import RunConfig
+from fgo_auto.ui.strings_zh import translate_message
 
 
 class SettingsPage(ctk.CTkScrollableFrame):
@@ -15,12 +16,19 @@ class SettingsPage(ctk.CTkScrollableFrame):
         ctk.CTkLabel(self, text="Run 設定", font=ctk.CTkFont(size=16, weight="bold")).pack(
             anchor="w", padx=12, pady=(12, 8)
         )
+        ctk.CTkLabel(
+            self,
+            text="顯示預設須與 BlueStacks 視窗實際尺寸一致（見 ADR-0005）。v2 需設定 quest_profile。",
+            anchor="w",
+            wraplength=880,
+        ).pack(fill="x", padx=12, pady=(0, 8))
+
         for key, label in (
-            ("script", "Script"),
-            ("loop_limit", "Loop limit"),
-            ("window_title_rule", "Window title rule"),
-            ("recognition_retries", "Recognition retries"),
-            ("script_config", "Script config 路徑"),
+            ("script", "腳本名稱"),
+            ("loop_limit", "循環上限"),
+            ("window_title_rule", "視窗標題規則"),
+            ("recognition_retries", "辨識重試次數"),
+            ("script_config", "腳本設定檔路徑"),
         ):
             row = ctk.CTkFrame(self)
             row.pack(fill="x", padx=12, pady=4)
@@ -31,16 +39,30 @@ class SettingsPage(ctk.CTkScrollableFrame):
 
         row = ctk.CTkFrame(self)
         row.pack(fill="x", padx=12, pady=4)
-        ctk.CTkLabel(row, text="Display preset", width=160, anchor="w").pack(side="left")
-        self._display = ctk.CTkEntry(row)
+        ctk.CTkLabel(row, text="顯示預設（寬, 高）", width=160, anchor="w").pack(side="left")
+        self._display = ctk.CTkEntry(row, placeholder_text="1920, 1080")
         self._display.pack(side="left", fill="x", expand=True)
+
+        row2 = ctk.CTkFrame(self)
+        row2.pack(fill="x", padx=12, pady=4)
+        ctk.CTkLabel(row2, text="腳本版本 (v0/v2)", width=160, anchor="w").pack(side="left")
+        self._script_version = ctk.CTkOptionMenu(row2, values=["v0", "v2"])
+        self._script_version.pack(side="left")
+
+        row3 = ctk.CTkFrame(self)
+        row3.pack(fill="x", padx=12, pady=4)
+        ctk.CTkLabel(row3, text="關卡設定檔 (v2)", width=160, anchor="w").pack(side="left")
+        self._quest_profile = ctk.CTkEntry(
+            row3, placeholder_text="treasure_door_extreme"
+        )
+        self._quest_profile.pack(side="left", fill="x", expand=True)
 
         btn_row = ctk.CTkFrame(self)
         btn_row.pack(fill="x", padx=12, pady=12)
         ctk.CTkButton(btn_row, text="驗證", command=self._validate).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_row, text="儲存至本機", command=self._save).pack(side="left")
 
-        self._msg = ctk.CTkLabel(self, text="", anchor="w")
+        self._msg = ctk.CTkLabel(self, text="", anchor="w", wraplength=880)
         self._msg.pack(fill="x", padx=12, pady=8)
 
     def load_config(self, config: RunConfig) -> None:
@@ -52,6 +74,10 @@ class SettingsPage(ctk.CTkScrollableFrame):
                 entry.insert(0, str(val))
         self._display.delete(0, "end")
         self._display.insert(0, f"{config.display_preset[0]}, {config.display_preset[1]}")
+        self._script_version.set(config.script_version)
+        self._quest_profile.delete(0, "end")
+        if config.quest_profile:
+            self._quest_profile.insert(0, config.quest_profile)
 
     def _collect(self) -> RunConfig:
         preset_parts = [p.strip() for p in self._display.get().split(",")]
@@ -63,18 +89,26 @@ class SettingsPage(ctk.CTkScrollableFrame):
             recognition_retries=int(self._fields["recognition_retries"].get()),
             display_preset=preset,
             script_config=self._fields["script_config"].get().strip() or None,
+            script_version=self._script_version.get(),  # type: ignore[arg-type]
+            quest_profile=self._quest_profile.get().strip() or None,
         )
 
     def _save(self) -> None:
         try:
-            self._on_save(self._collect())
-            self._msg.configure(text="已儲存至本機 profile")
+            cfg = self._collect()
+            if cfg.script_version == "v2" and not cfg.quest_profile:
+                self._msg.configure(
+                    text="v2 請填寫關卡設定檔（例如 treasure_door_extreme）後再儲存"
+                )
+                return
+            self._on_save(cfg)
+            self._msg.configure(text="已儲存至 data/profiles/default/run.yaml")
         except Exception as exc:
-            self._msg.configure(text=f"儲存失敗：{exc}")
+            self._msg.configure(text=f"儲存失敗：{translate_message(str(exc))}")
 
     def _validate(self) -> None:
         try:
             summary = self._on_validate(self._collect())
             self._msg.configure(text=str(summary))
         except Exception as exc:
-            self._msg.configure(text=f"驗證失敗：{exc}")
+            self._msg.configure(text=f"驗證失敗：{translate_message(str(exc))}")

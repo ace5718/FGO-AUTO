@@ -13,10 +13,14 @@ class LogsPage(ctk.CTkFrame):
         self._text.pack(fill="both", expand=True, padx=12, pady=12)
         ctk.CTkLabel(
             self,
-            text="Run pause 時可開啟 logs/pause_screenshot.png",
+            text="執行暫停時可開啟 logs/pause_screenshot.png 查看當下畫面",
             anchor="w",
         ).pack(fill="x", padx=12, pady=(0, 8))
         self.after(200, self._poll)
+
+    def append_line(self, line: str) -> None:
+        self._text.insert("end", line + "\n")
+        self._text.see("end")
 
     def _poll(self) -> None:
         while True:
@@ -24,6 +28,5 @@ class LogsPage(ctk.CTkFrame):
                 line = self._queue.get_nowait()
             except queue.Empty:
                 break
-            self._text.insert("end", line + "\n")
-            self._text.see("end")
+            self.append_line(line)
         self.after(200, self._poll)

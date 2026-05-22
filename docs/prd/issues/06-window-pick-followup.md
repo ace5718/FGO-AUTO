@@ -1,5 +1,11 @@
 # v1 follow-up: Window pick when multiple BlueStacks windows match
 
+GitHub: ace5718/FGO-AUTO#8
+
+## Status
+
+已關閉（main 已實作，pytest 通過）。
+
 ## Parent
 
 PRD v1 Screen state and Quest loop.
@@ -10,9 +16,9 @@ When Window title rule matches more than one window, CLI lists candidates and Op
 
 ## Acceptance criteria
 
-- [ ] Multiple match shows numbered list; single selection binds window
-- [ ] Operator can cancel without starting Run
-- [ ] Documented in Run config README
+- [x] Multiple match shows numbered list; single selection binds window
+- [x] Operator can cancel without starting Run
+- [x] Documented in Run config README
 
 ## Blocked by
 

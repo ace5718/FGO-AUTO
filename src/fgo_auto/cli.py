@@ -13,7 +13,7 @@ from fgo_auto.host.capture import CaptureError
 from fgo_auto.host.window_binder import WindowBindingError
 from fgo_auto.logging_setup import configure_logging
 from fgo_auto.run.controller import RunOutcome
-from fgo_auto.run_config import ConfigError
+from fgo_auto.run.run_config import ConfigError
 from fgo_auto.run.controller import RunController
 from fgo_auto.script.ap_reader import FakeAPReader
 from fgo_auto.script.engine import ScriptEngine
@@ -197,6 +197,7 @@ def run_cmd(
     pick_handle: Optional[int] = typer.Option(None, "--pick-handle"),
     ap_insufficient_template: Optional[Path] = typer.Option(None, "--ap-insufficient-template"),
     battle_assist_template: Optional[Path] = typer.Option(None, "--battle-assist-template"),
+    quest_profile: Optional[str] = typer.Option(None, "--quest-profile", help="Quest profile id (v2)"),
 ) -> None:
     """Start a Run (Quest loop v0)."""
     configure_logging()
@@ -209,6 +210,7 @@ def run_cmd(
             catalog_path=catalog_dir_opt,
             ap_insufficient_template=ap_insufficient_template,
             battle_assist_template=battle_assist_template,
+            quest_profile=quest_profile,
         )
 
         def _handle_sigint(*_args) -> None:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from fgo_auto.run_config import ConfigError, RunConfig, load_run_config
+from fgo_auto.run.run_config import ConfigError, RunConfig, load_run_config
 
 
 def test_load_valid_yaml(tmp_path: Path) -> None:

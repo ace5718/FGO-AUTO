@@ -1,5 +1,11 @@
 # v1 slice: State catalog v0 and Run pause on recognition failure
 
+GitHub: ace5718/FGO-AUTO#5
+
+## Status
+
+已關閉（main 已實作，pytest 通過）。
+
 ## Parent
 
 PRD v1 Screen state and Quest loop.
@@ -10,10 +16,10 @@ StateCatalog detects Unknown, Main, Terminal, Battle, Result from frames. RunCon
 
 ## Acceptance criteria
 
-- [ ] Fixture images classify to expected Screen state per catalog entry
-- [ ] Unknown used when confidence below threshold
-- [ ] After retry budget exhausted, Run enters Run pause (not Normal Run end)
-- [ ] pytest covers StateCatalog and RunController pause path without emulator
+- [x] Fixture images classify to expected Screen state per catalog entry
+- [x] Unknown used when confidence below threshold
+- [x] After retry budget exhausted, Run enters Run pause (not Normal Run end)
+- [x] pytest covers StateCatalog and RunController pause path without emulator
 
 ## Blocked by
 

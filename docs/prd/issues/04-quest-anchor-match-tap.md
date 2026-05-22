@@ -1,5 +1,11 @@
 # v1 slice: Anchor set merge and single Quest anchor tap
 
+GitHub: ace5718/FGO-AUTO#6
+
+## Status
+
+已關閉（main 已實作，pytest 通過）。
+
 ## Parent
 
 PRD v1 Screen state and Quest loop.
@@ -10,10 +16,10 @@ AnchorSet merges Script anchors with Run anchor overrides by name. ImageMatch fi
 
 ## Acceptance criteria
 
-- [ ] Override replaces Script anchor for same name; additional names append
-- [ ] Fixture frame plus anchor PNG yields expected coordinates in test
-- [ ] No match logs failure without silent continue
-- [ ] Works at 1920x1080 only (per ADR-0001)
+- [x] Override replaces Script anchor for same name; additional names append
+- [x] Fixture frame plus anchor PNG yields expected coordinates in test
+- [x] No match logs failure without silent continue
+- [x] Works at 1920x1080 only (per ADR-0001)
 
 ## Blocked by
 

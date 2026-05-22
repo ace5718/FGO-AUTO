@@ -10,6 +10,7 @@ from pathlib import Path
 from fgo_auto.run.controller import RunController, RunOutcome
 from fgo_auto.script.ap_reader import APReader, FakeAPReader
 from fgo_auto.script.engine import ScriptEngine
+from fgo_auto.script.engine_v2 import ScriptEngineV2
 from fgo_auto.services.paths import catalog_dir
 from fgo_auto.vision.image_match import ImageMatch
 from fgo_auto.vision.screen_state import ScreenState
@@ -31,14 +32,17 @@ class RunEvent:
     loops_completed: int = 0
 
 
+ScriptEngineLike = ScriptEngine | ScriptEngineV2
+
+
 class RunService:
-    def __init__(self, engine: ScriptEngine) -> None:
+    def __init__(self, engine: ScriptEngineLike) -> None:
         self._engine = engine
         self._events: queue.Queue[RunEvent] = queue.Queue()
         self._thread: threading.Thread | None = None
 
     @property
-    def engine(self) -> ScriptEngine:
+    def engine(self) -> ScriptEngineLike:
         return self._engine
 
     @property
