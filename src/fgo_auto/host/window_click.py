@@ -12,6 +12,10 @@ from fgo_auto.host.tap_target import TapTarget
 
 logger = structlog.get_logger()
 
+WM_MOUSEMOVE = 0x0200
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
@@ -23,6 +27,15 @@ def _user32():
 
 def frame_to_screen(target: TapTarget, x: int, y: int) -> tuple[int, int]:
     return target.origin_left + x, target.origin_top + y
+
+
+def _post_message_click(hwnd: int, x: int, y: int) -> None:
+    """Send mouse click messages to the target window without moving the system cursor."""
+    user32 = _user32()
+    lparam = (y << 16) | (x & 0xFFFF)
+    user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
+    user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
+    user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
 
 
 def _click_screen_restore(screen_x: int, screen_y: int) -> None:
@@ -39,17 +52,14 @@ def _click_screen_restore(screen_x: int, screen_y: int) -> None:
 
 
 def post_click(target: TapTarget, x: int, y: int) -> None:
-    """Real screen click; BlueStacks ignores PostMessage-only taps."""
-    screen_x, screen_y = frame_to_screen(target, x, y)
-    _click_screen_restore(screen_x, screen_y)
+    """Click the target window without moving the visible mouse cursor where possible."""
+    _post_message_click(target.hwnd, x, y)
     logger.info(
         "window_click",
         x=x,
         y=y,
-        screen_x=screen_x,
-        screen_y=screen_y,
         hwnd=target.hwnd,
-        method="cursor_restore",
+        method="post_message",
     )
 
 

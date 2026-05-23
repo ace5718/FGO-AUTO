@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from fgo_auto.quest.models import RunSubflowStep, ScrollUntilAnchorStep, TapAnchorStep
+from fgo_auto.quest.models import RunSubflowStep, ScrollUntilAnchorStep, TapAnchorStep, TapCoordinateStep
 from fgo_auto.run.run_config import ConfigError
 from fgo_auto.quest.models import FriendSupportConfig, QuestProfile
 from fgo_auto.services.quest_flow_service import (
@@ -72,6 +72,14 @@ def test_step_roundtrip_dict() -> None:
     step = TapAnchorStep(name="chaldea_gate")
     restored = dict_to_step(step_to_dict(step))
     assert restored.name == "chaldea_gate"
+
+
+def test_coordinate_step_roundtrip_dict() -> None:
+    step = TapCoordinateStep(x=123, y=456)
+    restored = dict_to_step(step_to_dict(step))
+    assert isinstance(restored, TapCoordinateStep)
+    assert restored.x == 123
+    assert restored.y == 456
 
 
 def test_scroll_until_anchor_roundtrip() -> None:

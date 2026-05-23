@@ -29,6 +29,12 @@ class TapAnchorStep(BaseModel):
     name: str
 
 
+class TapCoordinateStep(BaseModel):
+    action: Literal["tap_coordinate"] = "tap_coordinate"
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
 class ScrollUntilAnchorStep(BaseModel):
     """Swipe the quest list down until anchor template is found, then tap."""
 
@@ -66,6 +72,7 @@ class RunSubflowStep(BaseModel):
 
 NavigationStep = Annotated[
     TapAnchorStep
+    | TapCoordinateStep
     | ScrollUntilAnchorStep
     | RefreshUntilAnchorStep
     | WaitScreenStep

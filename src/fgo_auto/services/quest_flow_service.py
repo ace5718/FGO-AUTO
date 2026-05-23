@@ -20,6 +20,7 @@ from fgo_auto.quest.models import (
     RunSubflowStep,
     ScrollUntilAnchorStep,
     TapAnchorStep,
+    TapCoordinateStep,
     WaitScreenStep,
 )
 from fgo_auto.run.run_config import ConfigError
@@ -538,6 +539,8 @@ def dict_to_step(data: dict) -> NavigationStep:
         return WaitScreenStep.model_validate(data)
     if action == "delay":
         return DelayStep.model_validate(data)
+    if action == "tap_coordinate":
+        return TapCoordinateStep.model_validate(data)
     if action == "run_subflow":
         return RunSubflowStep.model_validate(data)
     raise ConfigError(f"未知的步驟類型：{action!r}")
@@ -774,6 +777,7 @@ FLOW_GUIDE = (
 STEP_KINDS_MAIN: dict[str, str] = {
     "執行子流程": "run_subflow",
     "點擊": "tap_anchor",
+    "點擊座標": "tap_coordinate",
     "往下滑找圖示": "scroll_until_anchor",
     "等待秒": "delay",
     "等待畫面": "wait_screen",
@@ -781,6 +785,7 @@ STEP_KINDS_MAIN: dict[str, str] = {
 
 STEP_KINDS_SUBFLOW: dict[str, str] = {
     "點擊": "tap_anchor",
+    "點擊座標": "tap_coordinate",
     "往下滑找圖示": "scroll_until_anchor",
     "更新重找圖示": "refresh_until_anchor",
     "等待秒": "delay",

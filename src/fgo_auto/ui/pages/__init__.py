@@ -1,5 +1,4 @@
 from fgo_auto.ui.pages.anchors_page import AnchorsPage
-from fgo_auto.ui.pages.catalog_page import CatalogPage
 from fgo_auto.ui.pages.flow_page import FlowPage
 from fgo_auto.ui.pages.logs_page import LogsPage
 from fgo_auto.ui.pages.preview_page import PreviewPage
@@ -8,7 +7,6 @@ from fgo_auto.ui.pages.settings_page import SettingsPage
 
 __all__ = [
     "AnchorsPage",
-    "CatalogPage",
     "FlowPage",
     "LogsPage",
     "PreviewPage",

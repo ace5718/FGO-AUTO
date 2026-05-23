@@ -12,7 +12,6 @@ from fgo_auto.run.run_config import RunConfig
 from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService
 from fgo_auto.services.paths import default_profile_dir, logs_dir
-from fgo_auto.services.catalog_service import count_templates
 from fgo_auto.services.quest_flow_service import (
     is_profile_supported_for_resolution,
     list_user_quest_profiles,
@@ -21,7 +20,6 @@ from fgo_auto.services.run_service import RunEventType, RunService
 from fgo_auto.services.run_setup import create_run_stack
 from fgo_auto.ui.pages import (
     AnchorsPage,
-    CatalogPage,
     FlowPage,
     LogsPage,
     PreviewPage,
@@ -41,8 +39,7 @@ class FgoAutoApp(ctk.CTk):
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
-        self._log_queue: queue.Queue[str] = queue.Queue()
-        configure_logging(gui_queue=self._log_queue)
+        configure_logging()
 
         self._config_svc = ConfigService()
         self._config_svc.seed_default_profile()
@@ -65,7 +62,6 @@ class FgoAutoApp(ctk.CTk):
         tab_settings = self._tabs.add("設定")
         tab_preview = self._tabs.add("預覽")
         tab_logs = self._tabs.add("日誌")
-        tab_catalog = self._tabs.add("模板庫")
 
         self._window_picker = WindowPickerFrame(tab_run, on_select=self._on_window_selected)
         self._window_picker.pack(fill="x", padx=8, pady=8)
@@ -91,6 +87,7 @@ class FgoAutoApp(ctk.CTk):
             on_quest_selected=self._on_flow_quest_selected,
             on_profiles_changed=self._refresh_run_quest_menu,
             on_resolution_change=self._on_flow_resolution_changed,
+            on_capture=self._capture_preview,
         )
         self._flow_page.pack(fill="both", expand=True)
 
@@ -109,11 +106,8 @@ class FgoAutoApp(ctk.CTk):
         )
         self._preview_page.pack(fill="both", expand=True)
 
-        self._logs_page = LogsPage(tab_logs, self._log_queue)
+        self._logs_page = LogsPage(tab_logs)
         self._logs_page.pack(fill="both", expand=True)
-
-        self._catalog_page = CatalogPage(tab_catalog, on_capture=self._capture_preview)
-        self._catalog_page.pack(fill="both", expand=True)
 
         footer = ctk.CTkLabel(
             self,
@@ -274,29 +268,26 @@ class FgoAutoApp(ctk.CTk):
             return "v2 請在「執行」選擇流程並按「套用此流程」，或到流程設定套用後儲存設定"
         try:
             merged = self._config_svc.load_merged()
+            cfg = self._state.run_config
+            runtime_frame = None
+            if cfg is not None:
+                self._capture_svc.bind(cfg.window_title_rule, self._state.pick_handle, cfg.display_preset)
+                runtime_frame = self._capture_svc.capture_frame()
             engine, _controller = create_run_stack(
                 merged,
                 pick_handle=self._state.pick_handle,
+                runtime_catalog_frame=runtime_frame,
             )
             self._run_svc = RunService(engine)
             self._run_svc.start()
             self._state.run_active = True
             qid = cfg.quest_profile if cfg else "—"
             ver = cfg.script_version if cfg else "—"
-            n = count_templates(cfg.display_preset)
             start_msg = f"已開始執行（{ver} · {qid}）"
             self._logs_page.append_line(start_msg)
-            if n == 0:
-                self._logs_page.append_line(
-                    f"警告：{cfg.display_preset[0]}×{cfg.display_preset[1]} 模板庫為空，"
-                    "請到「模板庫」→「擷圖→存為主畫面模板」（遊戲需在主畫面）"
-                )
             return start_msg
         except Exception as exc:
-            msg = translate_message(f"啟動失敗：{exc}")
-            self._log_queue.put(msg)
-            self._logs_page.append_line(msg)
-            return msg
+            return translate_message(f"啟動失敗：{exc}")
 
     def _stop_run(self) -> None:
         if self._run_svc:
@@ -342,7 +333,6 @@ class FgoAutoApp(ctk.CTk):
                 elif event.type is RunEventType.ERROR:
                     self._state.run_active = False
                     err = translate_message(event.message)
-                    self._logs_page.append_line(f"錯誤：{err}")
                     self._run_page.update_status(message=err)
         self.after(200, self._poll_run_events)
 

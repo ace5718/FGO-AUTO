@@ -10,6 +10,9 @@ from fgo_auto.vision.image_match import ImageMatch
 from fgo_auto.vision.screen_state import ScreenState
 
 
+_MAX_TEMPLATES_PER_STATE = 3
+
+
 class StateCatalog:
     """Built-in TW flow Screen state detectors via template bundles."""
 
@@ -17,9 +20,16 @@ class StateCatalog:
         self,
         templates: dict[ScreenState, list[np.ndarray]],
         threshold: float = 0.75,
+        *,
+        runtime_learning: bool = False,
     ) -> None:
         self._templates = templates
         self._matcher = ImageMatch(threshold=threshold)
+        self._runtime_learning = runtime_learning
+
+    @property
+    def learns_at_runtime(self) -> bool:
+        return self._runtime_learning
 
     @classmethod
     def from_directory(cls, catalog_dir: Path, threshold: float = 0.75) -> StateCatalog:
@@ -34,6 +44,23 @@ class StateCatalog:
                     if image is not None:
                         templates[state].append(image)
         return cls(templates=templates, threshold=threshold)
+
+    @classmethod
+    def from_runtime_session(cls, bootstrap_frame: Frame, threshold: float = 0.75) -> StateCatalog:
+        """Seed catalog from the live capture at Run start (no template-library UI)."""
+        templates: dict[ScreenState, list[np.ndarray]] = {state: [] for state in ScreenState}
+        catalog = cls(templates=templates, threshold=threshold, runtime_learning=True)
+        catalog.register(bootstrap_frame, ScreenState.MAIN)
+        return catalog
+
+    def register(self, frame: Frame, state: ScreenState) -> None:
+        """Remember a Screen state appearance seen during this Run."""
+        if state is ScreenState.UNKNOWN:
+            return
+        refs = self._templates.setdefault(state, [])
+        refs.append(frame.data.copy())
+        if len(refs) > _MAX_TEMPLATES_PER_STATE:
+            del refs[0 : len(refs) - _MAX_TEMPLATES_PER_STATE]
 
     def detect(self, frame: Frame) -> ScreenState:
         best_state = ScreenState.UNKNOWN

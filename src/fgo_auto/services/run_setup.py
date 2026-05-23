@@ -15,6 +15,7 @@ from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService, MergedRunContext
 from fgo_auto.services.paths import catalog_dir_for_preset, logs_dir
 from fgo_auto.services.run_service import build_script_engine
+from fgo_auto.vision.frame import Frame
 from fgo_auto.vision.state_catalog import StateCatalog
 
 ScriptEngineLike = Union[ScriptEngine, ScriptEngineV2]
@@ -73,6 +74,7 @@ def create_run_stack(
     fixture: Path | None = None,
     pick_handle: int | None = None,
     catalog_path: Path | None = None,
+    runtime_catalog_frame: Frame | None = None,
     ap_insufficient_template: Path | None = None,
     battle_assist_template: Path | None = None,
     binder: WindowBinder | None = None,
@@ -86,9 +88,14 @@ def create_run_stack(
         binder=binder,
     )
     preset = config.display_preset
-    catalog = StateCatalog.from_directory(
-        catalog_path or catalog_dir_for_preset(preset[0], preset[1])
-    )
+    if runtime_catalog_frame is not None:
+        catalog = StateCatalog.from_runtime_session(runtime_catalog_frame)
+    elif catalog_path is not None:
+        catalog = StateCatalog.from_directory(catalog_path)
+    else:
+        catalog = StateCatalog.from_directory(
+            catalog_dir_for_preset(preset[0], preset[1])
+        )
     controller = RunController(
         catalog=catalog,
         capture=capture,

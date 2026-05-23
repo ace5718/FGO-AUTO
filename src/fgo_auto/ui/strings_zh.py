@@ -48,8 +48,8 @@ def outcome_label(outcome: RunOutcome) -> str:
 def recognition_pause_hint(display_preset: tuple[int, int] | None = None) -> str:
     size = f"{display_preset[0]}×{display_preset[1]}" if display_preset else "與 BlueStacks 視窗一致"
     return (
-        f"畫面辨識失敗：{size} 的模板庫可能為空或與目前畫面不符。"
-        "請到「模板庫」→「擷圖→存為主畫面模板」（遊戲停在主畫面），再執行。"
+        f"畫面辨識失敗：{size} 與開始執行時擷取的畫面不符，或遊戲不在預期畫面。"
+        "請在遊戲主畫面按「開始執行」讓程式擷取參考畫面，或調整流程後再試。"
         "詳情見 logs/pause_screenshot.png。"
     )
 

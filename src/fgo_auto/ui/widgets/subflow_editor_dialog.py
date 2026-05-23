@@ -90,10 +90,16 @@ def open_subflow_editor(
 
     add_row = ctk.CTkFrame(win)
     add_row.pack(fill="x", padx=12, pady=4)
-    from fgo_auto.quest.models import DelayStep, TapAnchorStep
+    from fgo_auto.quest.models import DelayStep, TapAnchorStep, TapCoordinateStep
 
     ctk.CTkButton(
         add_row, text="＋點擊", width=72, command=lambda: rebuild(collect() + [TapAnchorStep(name="chaldea_gate")])
+    ).pack(side="left", padx=2)
+    ctk.CTkButton(
+        add_row,
+        text="＋點擊座標",
+        width=96,
+        command=lambda: rebuild(collect() + [TapCoordinateStep(x=0, y=0)]),
     ).pack(side="left", padx=2)
     ctk.CTkButton(
         add_row,

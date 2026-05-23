@@ -41,6 +41,8 @@ class RunController:
     def detect_screen_state(self) -> ScreenState:
         frame = self.capture.capture()
         state = self.catalog.detect(frame)
+        if state is not ScreenState.UNKNOWN and self.catalog.learns_at_runtime:
+            self.catalog.register(frame, state)
         self.status.last_screen_state = state
         if state is ScreenState.UNKNOWN:
             self.consecutive_unknown += 1

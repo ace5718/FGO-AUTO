@@ -16,6 +16,7 @@ from fgo_auto.quest.models import (
     RunSubflowStep,
     ScrollUntilAnchorStep,
     TapAnchorStep,
+    TapCoordinateStep,
     WaitScreenStep,
 )
 from fgo_auto.services.quest_flow_service import anchor_png_path, load_subflow_script
@@ -83,6 +84,8 @@ class NavigationEngine:
     ) -> bool:
         if isinstance(step, TapAnchorStep):
             return self._tap_anchor(step.name, anchor_profile_dir=anchor_profile_dir)
+        if isinstance(step, TapCoordinateStep):
+            return self._tap_coordinate(step)
         if isinstance(step, ScrollUntilAnchorStep):
             return self._scroll_until_anchor(
                 step.name, step.max_attempts, anchor_profile_dir=anchor_profile_dir
@@ -209,6 +212,16 @@ class NavigationEngine:
         _, match = found
         tap_pixels(match.center)
         logger.info("navigation_step", action="tap_anchor", anchor=name, score=match.score)
+        return True
+
+    def _tap_coordinate(self, step: TapCoordinateStep) -> bool:
+        tap_pixels((step.x, step.y))
+        logger.info(
+            "navigation_step",
+            action="tap_coordinate",
+            x=step.x,
+            y=step.y,
+        )
         return True
 
     def _scroll_until_anchor(

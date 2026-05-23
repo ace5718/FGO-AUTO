@@ -15,6 +15,7 @@ from fgo_auto.quest.models import (
     RunSubflowStep,
     ScrollUntilAnchorStep,
     TapAnchorStep,
+    TapCoordinateStep,
     WaitScreenStep,
 )
 from fgo_auto.services.quest_flow_service import (
@@ -43,6 +44,7 @@ from fgo_auto.services.quest_flow_service import (
 )
 from fgo_auto.ui.strings_zh import translate_message
 from fgo_auto.ui.widgets.anchor_preview_dialog import show_anchor_fullsize
+from fgo_auto.ui.widgets.coordinate_pick_dialog import pick_coordinate_on_capture
 
 _NO_ANCHOR = "（尚無圖示，請到預覽／共用圖示庫新增）"
 _SCROLL_ATTEMPTS = ("5", "8", "10", "12", "15")
@@ -90,6 +92,7 @@ class _StepRow(ctk.CTkFrame):
         step_kinds: dict[str, str],
         subflow_choices: tuple[str, ...] = (),
         shared_anchor_resolution: str = "全部",
+        on_pick_coordinate: Callable[[], tuple[int, int] | None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -98,6 +101,7 @@ class _StepRow(ctk.CTkFrame):
         self._step_kinds = step_kinds
         self._subflow_choices = subflow_choices or ("（尚無其他本機方案）",)
         self._shared_anchor_resolution = shared_anchor_resolution
+        self._on_pick_coordinate = on_pick_coordinate
         self._thumb_photo: ImageTk.PhotoImage | None = None
 
         kinds = list(step_kinds.keys())
@@ -200,6 +204,20 @@ class _StepRow(ctk.CTkFrame):
         entry.pack(side="left")
         self._entries["seconds"] = entry
 
+    def _add_coordinate_entries(self, x: int, y: int) -> None:
+        row = ctk.CTkFrame(self._detail)
+        row.pack(fill="x", pady=1)
+        ctk.CTkLabel(row, text="X", width=28, anchor="w").pack(side="left")
+        x_entry = ctk.CTkEntry(row, width=72, placeholder_text="0")
+        x_entry.insert(0, str(x))
+        x_entry.pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(row, text="Y", width=28, anchor="w").pack(side="left")
+        y_entry = ctk.CTkEntry(row, width=72, placeholder_text="0")
+        y_entry.insert(0, str(y))
+        y_entry.pack(side="left")
+        self._entries["x"] = x_entry
+        self._entries["y"] = y_entry
+
     def _parse_seconds(self) -> float:
         raw = self._pick("seconds")
         if not raw:
@@ -210,6 +228,31 @@ class _StepRow(ctk.CTkFrame):
             raise ValueError("秒數請輸入數字（可含小數）") from exc
         if value < 0:
             raise ValueError("秒數不可為負數")
+        return value
+
+    def _pick_coordinate(self) -> None:
+        if self._on_pick_coordinate is None:
+            return
+        coords = self._on_pick_coordinate()
+        if coords is None:
+            return
+        if "x" in self._entries:
+            self._entries["x"].delete(0, "end")
+            self._entries["x"].insert(0, str(coords[0]))
+        if "y" in self._entries:
+            self._entries["y"].delete(0, "end")
+            self._entries["y"].insert(0, str(coords[1]))
+
+    def _parse_coordinate(self, key: str) -> int:
+        raw = self._pick(key)
+        if not raw:
+            raise ValueError(f"請輸入 {key.upper()} 座標")
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{key.upper()} 座標請輸入整數") from exc
+        if value < 0:
+            raise ValueError(f"{key.upper()} 座標不可為負數")
         return value
 
     def _set_pick(self, key: str, value: str, values: tuple[str, ...]) -> None:
@@ -226,6 +269,15 @@ class _StepRow(ctk.CTkFrame):
             self._on_kind("點擊")
             self._set_pick("anchor", step.name, tuple(self._anchor_choices))
             self._show_thumb(step.name)
+        elif isinstance(step, TapCoordinateStep):
+            self._kind_menu.set("點擊座標")
+            self._on_kind("點擊座標")
+            if "x" in self._entries:
+                self._entries["x"].delete(0, "end")
+                self._entries["x"].insert(0, str(step.x))
+            if "y" in self._entries:
+                self._entries["y"].delete(0, "end")
+                self._entries["y"].insert(0, str(step.y))
         elif isinstance(step, ScrollUntilAnchorStep):
             self._kind_menu.set("往下滑找圖示")
             self._on_kind("往下滑找圖示")
@@ -282,6 +334,15 @@ class _StepRow(ctk.CTkFrame):
         elif kind == "等待畫面":
             self._set_thumb_visible(False)
             self._add_picker("screen", "畫面", _SCREEN_CHOICES)
+        elif kind == "點擊座標":
+            self._set_thumb_visible(False)
+            self._add_coordinate_entries(0, 0)
+            if self._on_pick_coordinate is not None:
+                row = ctk.CTkFrame(self._detail)
+                row.pack(fill="x", pady=1)
+                ctk.CTkButton(row, text="從擷圖點選", width=96, command=self._pick_coordinate).pack(
+                    side="left"
+                )
         elif kind == "更新重找圖示":
             self._set_thumb_visible(True)
             self._add_picker(
@@ -338,6 +399,8 @@ class _StepRow(ctk.CTkFrame):
             )
         if action == "delay":
             return DelayStep(seconds=self._parse_seconds())
+        if action == "tap_coordinate":
+            return TapCoordinateStep(x=self._parse_coordinate("x"), y=self._parse_coordinate("y"))
         if action == "wait_screen":
             return WaitScreenStep(state=SCREEN_STATE_ZH[self._pick("screen")], timeout_s=15.0)
         ref_zh = self._pick("subflow")
@@ -357,6 +420,7 @@ class FlowPage(ctk.CTkFrame):
         on_quest_selected: Callable[[str], None] | None = None,
         on_resolution_change: Callable[[str], None] | None = None,
         on_profiles_changed: Callable[[], None] | None = None,
+        on_capture: Callable[[], Path] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -364,6 +428,7 @@ class FlowPage(ctk.CTkFrame):
         self._on_quest_selected = on_quest_selected
         self._on_resolution_change = on_resolution_change
         self._on_profiles_changed = on_profiles_changed
+        self._on_capture = on_capture
         self._entries: list[QuestProfileEntry] = []
         self._profile_dir: Path | None = None
         self._profile: QuestProfile | None = None
@@ -414,6 +479,7 @@ class FlowPage(ctk.CTkFrame):
         add_row = ctk.CTkFrame(self)
         add_row.pack(fill="x", padx=12, pady=4)
         ctk.CTkButton(add_row, text="＋點擊", width=72, command=self._add_tap).pack(side="left", padx=2)
+        ctk.CTkButton(add_row, text="＋點擊座標", width=96, command=self._add_coordinate).pack(side="left", padx=2)
         ctk.CTkButton(add_row, text="＋往下滑找", width=96, command=self._add_scroll).pack(side="left", padx=2)
         ctk.CTkButton(add_row, text="＋等待", width=72, command=lambda: self._add_step(DelayStep(seconds=0.5))).pack(
             side="left", padx=2
@@ -488,11 +554,24 @@ class FlowPage(ctk.CTkFrame):
                 elif opts:
                     menu.set(opts[0])
 
+    def _pick_coordinate_for_step(self) -> tuple[int, int] | None:
+        if self._on_capture is None:
+            return None
+        return pick_coordinate_on_capture(self.winfo_toplevel(), self._on_capture)
+
     def _add_tap(self) -> None:
         self._add_step(TapAnchorStep(name=self._default_anchor()))
 
     def _add_scroll(self) -> None:
         self._add_step(ScrollUntilAnchorStep(name=self._default_anchor(), max_attempts=8))
+
+    def _add_coordinate(self) -> None:
+        if self._on_capture is not None:
+            coords = pick_coordinate_on_capture(self.winfo_toplevel(), self._on_capture)
+            if coords is not None:
+                self._add_step(TapCoordinateStep(x=coords[0], y=coords[1]))
+                return
+        self._add_step(TapCoordinateStep(x=0, y=0))
 
     def _add_subflow_step(self) -> None:
         entry = self._selected_entry()
@@ -609,6 +688,7 @@ class FlowPage(ctk.CTkFrame):
             step_kinds=STEP_KINDS_MAIN,
             subflow_choices=self._subflow_choices,
             shared_anchor_resolution=self._shared_anchor_resolution,
+            on_pick_coordinate=self._pick_coordinate_for_step,
         )
         row.pack(fill="x", pady=2)
         self._step_rows.append(row)
