@@ -108,11 +108,26 @@ def capture_hwnd_bgr(hwnd: int, width: int, height: int) -> np.ndarray | None:
         header.biCompression = BI_RGB
         info = BITMAPINFO()
         info.bmiHeader = header
-        buf = (ctypes.c_char * (width * height * 3))()
+
+        # Each DIB scanline is padded to a 4-byte boundary. Compute stride and
+        # allocate buffer accordingly, then rebuild a (H, W, 3) array by
+        # stripping the padding bytes per row.
+        line_bytes = ((width * 3 + 3) // 4) * 4
+        buf_size = line_bytes * height
+        buf = (ctypes.c_char * buf_size)()
         lines = gdi32.GetDIBits(mem_dc, bitmap, 0, height, buf, ctypes.byref(info), DIB_RGB_COLORS)
         if not lines:
             return None
-        return np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 3).copy()
+
+        arr = np.frombuffer(buf, dtype=np.uint8)
+        if arr.size != buf_size:
+            # Unexpected size — fail safe
+            return None
+        arr = arr.reshape((height, line_bytes))
+        # Keep only the first width*3 bytes of each row (drop padding), then
+        # reshape to (height, width, 3).
+        arr = arr[:, : width * 3].reshape((height, width, 3)).copy()
+        return arr
     finally:
         gdi32.SelectObject(mem_dc, old)
         gdi32.DeleteObject(bitmap)

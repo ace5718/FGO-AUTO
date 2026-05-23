@@ -44,13 +44,8 @@ class SettingsPage(ctk.CTkScrollableFrame):
         self._display = ctk.CTkEntry(row, placeholder_text="1920, 1080")
         self._display.pack(side="left", fill="x", expand=True)
 
-        row2 = ctk.CTkFrame(self)
-        row2.pack(fill="x", padx=12, pady=4)
-        ctk.CTkLabel(row2, text="腳本版本 (v0/v2)", width=160, anchor="w").pack(side="left")
-        self._script_version = ctk.CTkOptionMenu(row2, values=["v0", "v2"])
-        self._script_version.pack(side="left")
-
         self._quest_profile: str | None = None
+        self._loaded_script_version: str = "v0"
 
         btn_row = ctk.CTkFrame(self)
         btn_row.pack(fill="x", padx=12, pady=12)
@@ -69,7 +64,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
                 entry.insert(0, str(val))
         self._display.delete(0, "end")
         self._display.insert(0, f"{config.display_preset[0]}, {config.display_preset[1]}")
-        self._script_version.set(config.script_version)
+        self._loaded_script_version = config.script_version
         self._quest_profile = config.quest_profile
 
     def _collect(self) -> RunConfig:
@@ -82,7 +77,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
             recognition_retries=int(self._fields["recognition_retries"].get()),
             display_preset=preset,
             script_config=self._fields["script_config"].get().strip() or None,
-            script_version=self._script_version.get(),  # type: ignore[arg-type]
+            script_version=self._loaded_script_version,
             quest_profile=self._quest_profile,
         )
 
@@ -91,7 +86,7 @@ class SettingsPage(ctk.CTkScrollableFrame):
             cfg = self._collect()
             if cfg.script_version == "v2" and not cfg.quest_profile:
                 self._msg.configure(
-                    text="v2 請先在「流程設定」選方案並按「套用設定」，或到「執行」按「套用此流程」"
+                    text="v2 請先在「執行」分頁選擇並套用方案。"
                 )
                 return
             self._on_save(cfg)

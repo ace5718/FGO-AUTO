@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,6 +69,58 @@ def list_quest_profiles() -> list[QuestProfileEntry]:
 def list_user_quest_profiles() -> list[QuestProfileEntry]:
     """Only data/profiles/quests/ — what the operator owns and can edit/delete."""
     return [e for e in list_quest_profiles() if e.is_user_copy]
+
+
+def shared_anchor_resolutions() -> tuple[str, ...]:
+    root = shared_anchors_dir()
+    resolutions: list[str] = []
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            resolutions.append(child.name)
+    return tuple(resolutions)
+
+
+def resolve_shared_anchor_path(name: str) -> Path | None:
+    if not name or name.startswith("（"):
+        return None
+    root = shared_anchors_dir()
+    if "/" in name:
+        resolution, base = name.split("/", 1)
+        candidate = root / resolution / f"{base}.png"
+        return candidate if candidate.is_file() else None
+    candidate = root / f"{name}.png"
+    if candidate.is_file():
+        return candidate
+    matches: list[Path] = []
+    for child in root.iterdir():
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            alt = child / f"{name}.png"
+            if alt.is_file():
+                matches.append(alt)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def list_shared_anchors(resolution: str | None = None) -> list[str]:
+    root = shared_anchors_dir()
+    names: list[str] = []
+    if resolution and resolution != "全部":
+        target = root / resolution
+        if target.is_dir():
+            for png in sorted(target.glob("*.png")):
+                if png.is_file():
+                    names.append(f"{resolution}/{png.stem}")
+        return names
+    for png in sorted(root.glob("*.png")):
+        if png.is_file() and not png.name.startswith("_"):
+            names.append(png.stem)
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            for png in sorted(child.glob("*.png")):
+                if png.is_file():
+                    names.append(f"{child.name}/{png.stem}")
+    return names
 
 
 def list_example_quest_profiles() -> list[QuestProfileEntry]:
@@ -169,9 +222,60 @@ def shared_anchors_dir() -> Path:
     return d
 
 
-def list_shared_anchors() -> list[str]:
+def shared_anchor_resolutions() -> tuple[str, ...]:
     root = shared_anchors_dir()
-    return sorted(p.stem for p in root.glob("*.png") if p.is_file() and not p.name.startswith("_"))
+    resolutions: list[str] = []
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            resolutions.append(child.name)
+    return tuple(resolutions)
+
+
+def resolve_shared_anchor_path(name: str, resolution: str | None = None) -> Path | None:
+    if not name or name.startswith("（"):
+        return None
+    root = shared_anchors_dir()
+    if "/" in name:
+        resolution, base = name.split("/", 1)
+        candidate = root / resolution / f"{base}.png"
+        return candidate if candidate.is_file() else None
+    if resolution and resolution != "全部":
+        candidate = root / resolution / f"{name}.png"
+        if candidate.is_file():
+            return candidate
+    candidate = root / f"{name}.png"
+    if candidate.is_file():
+        return candidate
+    matches: list[Path] = []
+    for child in root.iterdir():
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            alt = child / f"{name}.png"
+            if alt.is_file():
+                matches.append(alt)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def list_shared_anchors(resolution: str | None = None) -> list[str]:
+    root = shared_anchors_dir()
+    names: list[str] = []
+    if resolution and resolution != "全部":
+        target = root / resolution
+        if target.is_dir():
+            for png in sorted(target.glob("*.png")):
+                if png.is_file():
+                    names.append(f"{resolution}/{png.stem}")
+        return names
+    for png in sorted(root.glob("*.png")):
+        if png.is_file() and not png.name.startswith("_"):
+            names.append(png.stem)
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and re.fullmatch(r"\d+x\d+", child.name):
+            for png in sorted(child.glob("*.png")):
+                if png.is_file():
+                    names.append(f"{child.name}/{png.stem}")
+    return names
 
 
 def load_flow_script(profile_dir: Path, profile: QuestProfile, flow_key: str) -> NavigationScript:
@@ -314,7 +418,7 @@ def save_quest_anchor_crop(
     *,
     frame_path: Path | None = None,
 ) -> Path:
-    """Crop from last preview frame into data/profiles/quests/<id>/anchors/."""
+    """Crop from last preview frame into per-quest anchors and shared resolution-specific library."""
     import cv2
 
     if not name.replace("_", "").isalnum():
@@ -338,7 +442,13 @@ def save_quest_anchor_crop(
 
     crop = frame[y1:y2, x1:x2]
     out = quest_anchors_dir(quest_id) / f"{name}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), crop)
+
+    shared_dir = shared_anchors_dir() / f"{frame.shape[1]}x{frame.shape[0]}"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    shared_out = shared_dir / f"{name}.png"
+    cv2.imwrite(str(shared_out), crop)
     return out
 
 
@@ -374,11 +484,11 @@ def create_blank_profile(quest_id: str, display_name: str = "") -> Path:
         navigation_script="navigation.yaml",
         battle_script="battle.yaml",
         party_slot=1,
-        friend_support=default_friend_support_config(),
+        friend_support=None,
     )
     save_profile(dest, profile)
     save_battle(dest, BattleScript())
-    ensure_default_subflows(dest, profile)
+    save_flow_script(dest, "main", NavigationScript(steps=[]))
     return dest
 
 
@@ -437,20 +547,25 @@ def _legacy_anchors_dir() -> Path:
     return data_root() / "anchors"
 
 
-def anchor_png_path(profile_dir: Path | None, name: str) -> Path | None:
+def anchor_png_path(profile_dir: Path | None, name: str, resolution: str | None = None) -> Path | None:
     if not name or name.startswith("（"):
         return None
     if profile_dir is not None:
         quest_path = profile_dir / "anchors" / f"{name}.png"
         if quest_path.is_file():
             return quest_path
-    shared = shared_anchors_dir() / f"{name}.png"
-    return shared if shared.is_file() else None
+    return resolve_shared_anchor_path(name, resolution)
 
 
-def list_saved_anchors(profile_dir: Path | None = None) -> list[str]:
+def list_saved_anchors(profile_dir: Path | None = None, resolution: str | None = None) -> list[str]:
     """Shared data/anchors/ plus optional per-quest overrides."""
-    names: set[str] = set(list_shared_anchors())
+    raw_names = list_shared_anchors(resolution)
+    names: set[str] = set()
+    for name in raw_names:
+        if "/" in name:
+            names.add(name.split("/", 1)[1])
+        else:
+            names.add(name)
     if profile_dir is not None:
         anchors_dir = profile_dir / "anchors"
         if anchors_dir.is_dir():
@@ -470,7 +585,9 @@ def delete_quest_anchor(
     if not name or name.startswith("（"):
         raise ConfigError("請選擇要刪除的圖示")
     if shared:
-        path = shared_anchors_dir() / f"{name}.png"
+        path = resolve_shared_anchor_path(name)
+        if path is None:
+            raise ConfigError(f"找不到圖示檔：{name}")
     elif profile_dir is not None:
         path = profile_dir / "anchors" / f"{name}.png"
     else:
@@ -590,9 +707,13 @@ def anchors_referenced_by_flow(
     return set(refs)
 
 
-def anchor_choices_for_profile(profile_dir: Path, navigation: NavigationScript | None = None) -> list[str]:
+def anchor_choices_for_profile(
+    profile_dir: Path,
+    navigation: NavigationScript | None = None,
+    resolution: str | None = None,
+) -> list[str]:
     """Union of shared anchors, quest anchors/, and step names."""
-    names: set[str] = set(list_saved_anchors(profile_dir))
+    names: set[str] = set(list_saved_anchors(profile_dir, resolution))
     if navigation is not None:
         for step in navigation.steps:
             if isinstance(step, (TapAnchorStep, ScrollUntilAnchorStep)):

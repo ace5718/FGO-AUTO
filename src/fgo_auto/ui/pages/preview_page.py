@@ -37,6 +37,7 @@ class PreviewPage(ctk.CTkFrame):
         self._tk_image: ImageTk.PhotoImage | None = None
         self._anchor_names: list[str] = []
         self._capture_path: Path | None = None
+        self._shared_anchor_resolution: str = "全部"
 
         top = ctk.CTkFrame(self)
         top.pack(fill="x", padx=12, pady=12)
@@ -91,13 +92,20 @@ class PreviewPage(ctk.CTkFrame):
             return
         try:
             profile_dir = resolve_quest_profile_dir(quest_id)
-            self._anchor_names = anchor_choices_for_profile(profile_dir, navigation=None)
+            self._anchor_names = anchor_choices_for_profile(
+                profile_dir,
+                navigation=None,
+                resolution=self._shared_anchor_resolution,
+            )
             opts = [_NEW_ANCHOR, *self._anchor_names] if self._anchor_names else [_NEW_ANCHOR]
             self._anchor_pick.configure(values=opts)
             self._anchor_pick.set(opts[1] if len(opts) > 1 else _NEW_ANCHOR)
             self._on_anchor_pick(self._anchor_pick.get())
         except Exception as exc:
             self._status.configure(text=translate_message(str(exc)))
+
+    def set_shared_anchor_resolution(self, resolution: str) -> None:
+        self._shared_anchor_resolution = resolution
 
     def _on_anchor_pick(self, choice: str) -> None:
         if choice == _NEW_ANCHOR:

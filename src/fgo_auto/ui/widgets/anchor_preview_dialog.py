@@ -18,11 +18,11 @@ def _pil_anchor_image(path: Path) -> Image.Image:
     return img.convert("RGB")
 
 
-def show_anchor_fullsize(master, profile_dir: Path | None, name: str) -> None:
+def show_anchor_fullsize(master, profile_dir: Path | None, name: str, resolution: str | None = None) -> None:
     """Open a dialog with the full anchor PNG (click thumbnail in flow steps)."""
     if profile_dir is None:
         return
-    path = anchor_png_path(profile_dir, name)
+    path = anchor_png_path(profile_dir, name, resolution)
     if path is None:
         return
 

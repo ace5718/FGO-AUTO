@@ -17,5 +17,6 @@ class AppState:
     loops_completed: int = 0
     last_capture_path: Path | None = None
     status_message: str = ""
+    shared_anchor_resolution: str = "全部"
     """流程設定目前選中的關卡 id；預覽存圖示與流程下拉共用。"""
     editing_quest_id: str | None = None

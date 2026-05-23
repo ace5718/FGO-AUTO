@@ -118,8 +118,9 @@ def test_create_blank_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert dest.is_dir()
     profile, navigation, profile_dir = load_flow("blank_quest")
     assert profile.display_name == "測試關卡"
-    assert any(isinstance(s, RunSubflowStep) for s in navigation.steps)
-    assert (profile_dir / "subflows" / "friend_support.yaml").is_file()
+    assert navigation.steps == []
+    assert not (profile_dir / "subflows" / "enter_quest.yaml").exists()
+    assert not (profile_dir / "subflows" / "friend_support.yaml").exists()
 
 
 def test_friend_support_anchor_plain_known() -> None:
@@ -156,9 +157,8 @@ def test_load_subflow_friend_support_script(
     create_blank_profile("sf_quest")
     profile, _, profile_dir = load_flow("sf_quest")
     script, anchor_dir = qfs.load_subflow_script(profile_dir, profile, "friend_support")
-    assert script is not None
-    assert anchor_dir == profile_dir
-    assert len(script.steps) >= 2
+    assert script is None
+    assert anchor_dir is None
 
 
 def test_load_subflow_by_other_quest_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

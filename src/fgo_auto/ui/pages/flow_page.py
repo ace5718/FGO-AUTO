@@ -148,7 +148,12 @@ class _StepRow(ctk.CTkFrame):
             return
         name = self._pick("anchor") if "anchor" in self._pickers else None
         if name and not name.startswith("（"):
-            show_anchor_fullsize(self.winfo_toplevel(), self._profile_dir, name)
+            show_anchor_fullsize(
+                self.winfo_toplevel(),
+                self._profile_dir,
+                name,
+                resolution=self._shared_anchor_resolution,
+            )
 
     def _on_anchor_pick(self, name: str) -> None:
         self._show_thumb(name)
@@ -350,6 +355,7 @@ class FlowPage(ctk.CTkFrame):
         self._anchor_choices: list[str] = [_NO_ANCHOR]
         self._subflow_choices: tuple[str, ...] = ()
         self._step_rows: list[_StepRow] = []
+        self._shared_anchor_resolution: str = "全部"
 
         ctk.CTkLabel(self, text=FLOW_GUIDE, justify="left", wraplength=880).pack(
             anchor="w", padx=12, pady=(10, 4)
@@ -361,7 +367,6 @@ class FlowPage(ctk.CTkFrame):
         self._profile_menu = ctk.CTkOptionMenu(top, values=["…"], width=280, command=self._on_profile_pick)
         self._profile_menu.pack(side="left", padx=4)
         ctk.CTkButton(top, text="儲存", width=56, command=self.save).pack(side="left", padx=4)
-        ctk.CTkButton(top, text="套用設定", width=80, command=self._apply_to_run).pack(side="left")
         ctk.CTkButton(top, text="重新載入", width=72, command=self.reload).pack(side="left", padx=4)
 
         copy_row = ctk.CTkFrame(self)
@@ -371,7 +376,6 @@ class FlowPage(ctk.CTkFrame):
         self._new_name = ctk.CTkEntry(copy_row, placeholder_text="顯示名稱（可選）", width=120)
         self._new_name.pack(side="left", padx=(0, 6))
         ctk.CTkButton(copy_row, text="新增空白方案", width=100, command=self._create_blank).pack(side="left", padx=2)
-        ctk.CTkButton(copy_row, text="從範例複製", width=90, command=self._copy_from_example).pack(side="left", padx=2)
         ctk.CTkButton(
             copy_row,
             text="刪除本機關卡",
@@ -410,9 +414,28 @@ class FlowPage(ctk.CTkFrame):
             return
         steps = self._collect_steps() if self._step_rows else []
         nav = NavigationScript(steps=steps) if steps else None
-        self._anchor_choices = anchor_choices_for_profile(self._profile_dir, nav)
+        self._anchor_choices = anchor_choices_for_profile(
+            self._profile_dir,
+            nav,
+            resolution=self._shared_anchor_resolution,
+        )
         if not self._anchor_choices:
             self._anchor_choices = [_NO_ANCHOR]
+
+    def set_shared_anchor_resolution(self, resolution: str) -> None:
+        self._shared_anchor_resolution = resolution
+
+        if self._profile_dir is not None:
+            steps = self._collect_steps() if self._step_rows else []
+            nav = NavigationScript(steps=steps) if steps else None
+            self._anchor_choices = anchor_choices_for_profile(
+                self._profile_dir,
+                nav,
+                resolution=self._shared_anchor_resolution,
+            )
+            if not self._anchor_choices:
+                self._anchor_choices = [_NO_ANCHOR]
+
         for row in self._step_rows:
             if "anchor" in row._pickers:
                 menu = row._pickers["anchor"]
@@ -437,7 +460,7 @@ class FlowPage(ctk.CTkFrame):
             current_quest_id=entry.quest_id if entry else None,
         )
         if not choices or choices[0].startswith("（"):
-            self._status.configure(text="請先建立第二個本機方案，或從範例複製後再編排子流程")
+            self._status.configure(text="請先建立第二個本機方案，再編排子流程")
             return
         ref = subflow_ref_from_label(choices[0])
         self._add_step(RunSubflowStep(ref=ref, repeat=1, interval_s=0.5))
@@ -448,7 +471,7 @@ class FlowPage(ctk.CTkFrame):
             self._profile_menu.configure(values=["（尚無本機方案）"])
             self._profile_dir = None
             self._clear_steps()
-            self._status.configure(text="請「新增空白方案」或「從範例複製」開始")
+            self._status.configure(text="請新增本機方案開始")
             return
         labels = [f"{e.display_name or e.quest_id}" for e in self._entries]
         self._profile_menu.configure(values=labels)
@@ -478,7 +501,11 @@ class FlowPage(ctk.CTkFrame):
             self._subflow_choices = subflow_picker_choices(
                 profile_dir, current_quest_id=entry.quest_id
             )
-            self._anchor_choices = anchor_choices_for_profile(profile_dir, navigation)
+            self._anchor_choices = anchor_choices_for_profile(
+                profile_dir,
+                navigation,
+                resolution=self._shared_anchor_resolution,
+            )
             if not self._anchor_choices:
                 self._anchor_choices = [_NO_ANCHOR]
             self._set_steps(navigation.steps)
@@ -517,7 +544,7 @@ class FlowPage(ctk.CTkFrame):
 
     def _add_step(self, step: NavigationStep) -> None:
         if self._selected_entry() is None or self._profile_dir is None:
-            self._status.configure(text="請先選本機方案，或「新增空白方案／從範例複製」")
+            self._status.configure(text="請先選本機方案，或新增本機方案")
             return
         self._append_row(step)
 
@@ -544,7 +571,7 @@ class FlowPage(ctk.CTkFrame):
             self._status.configure(text="請先選關卡")
             return
         if not entry.is_user_copy:
-            self._status.configure(text="範例不能直接存，請「從範例複製」")
+            self._status.configure(text="範例不能直接存，請先建立本機方案")
             return
         try:
             navigation = NavigationScript(steps=self._collect_steps())

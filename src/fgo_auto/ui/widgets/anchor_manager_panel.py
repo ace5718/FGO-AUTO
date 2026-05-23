@@ -14,7 +14,7 @@ from fgo_auto.services.quest_flow_service import (
     delete_quest_anchor,
     list_saved_anchors,
     list_shared_anchors,
-    shared_anchors_dir,
+    resolve_shared_anchor_path,
 )
 from fgo_auto.ui.widgets.anchor_preview_dialog import show_anchor_fullsize
 
@@ -50,6 +50,7 @@ class AnchorManagerPanel(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self._on_changed = on_changed
         self._shared_mode = shared_mode
+        self._shared_resolution: str = "全部"
         self._profile_dir: Path | None = None
         self._editable = False
         self._profile: QuestProfile | None = None
@@ -65,12 +66,13 @@ class AnchorManagerPanel(ctk.CTkFrame):
             anchor="w",
         )
 
-    def load_shared(self, *, editable: bool) -> None:
+    def load_shared(self, *, editable: bool, resolution: str = "全部") -> None:
         self._shared_mode = True
         self._profile_dir = None
         self._profile = None
         self._navigation = None
         self._editable = editable
+        self._shared_resolution = resolution
         self._refresh()
 
     def load(
@@ -94,7 +96,7 @@ class AnchorManagerPanel(ctk.CTkFrame):
         self._photos.clear()
 
         if self._shared_mode:
-            names = list_shared_anchors()
+            names = list_shared_anchors(self._shared_resolution)
         elif self._profile_dir is None:
             ctk.CTkLabel(self._grid_host, text="請先選關卡").pack(padx=8, pady=8)
             return
@@ -116,7 +118,7 @@ class AnchorManagerPanel(ctk.CTkFrame):
         cols = 5
         for i, name in enumerate(names):
             path = (
-                shared_anchors_dir() / f"{name}.png"
+                resolve_shared_anchor_path(name)
                 if self._shared_mode
                 else anchor_png_path(self._profile_dir, name)
             )

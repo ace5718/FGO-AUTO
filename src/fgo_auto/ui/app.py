@@ -92,6 +92,7 @@ class FgoAutoApp(ctk.CTk):
         self._anchors_page = AnchorsPage(
             tab_anchors,
             on_go_preview=lambda: self._focus_tab("預覽"),
+            on_resolution_change=self._on_anchor_resolution_changed,
         )
         self._anchors_page.pack(fill="both", expand=True)
 
@@ -121,6 +122,7 @@ class FgoAutoApp(ctk.CTk):
             self._state.run_config = cfg
             self._settings_page.load_config(cfg)
             self._window_picker.set_rule(cfg.window_title_rule)
+            self._set_shared_anchor_resolution_from_config(cfg)
         except Exception as exc:
             self._run_page.update_status(message=f"載入設定失敗：{translate_message(str(exc))}")
 
@@ -128,6 +130,7 @@ class FgoAutoApp(ctk.CTk):
         self._config_svc.save_run(config)
         self._state.run_config = config
         self._window_picker.set_rule(config.window_title_rule)
+        self._set_shared_anchor_resolution_from_config(config)
         self._refresh_run_flow_status()
 
     def _refresh_run_quest_menu(self) -> None:
@@ -206,6 +209,23 @@ class FgoAutoApp(ctk.CTk):
     def _on_window_selected(self, handle: int, title: str) -> None:
         self._state.pick_handle = handle
         self._state.bound_window_title = title
+
+    def _set_shared_anchor_resolution_from_config(self, config: RunConfig) -> None:
+        resolution = f"{config.display_preset[0]}x{config.display_preset[1]}"
+        self._set_shared_anchor_resolution(resolution)
+
+    def _set_shared_anchor_resolution(self, resolution: str) -> None:
+        self._state.shared_anchor_resolution = resolution
+        self._flow_page.set_shared_anchor_resolution(resolution)
+        self._preview_page.set_shared_anchor_resolution(resolution)
+        self._anchors_page.set_resolution(resolution)
+        self._preview_page.refresh_quest()
+        self._flow_page.refresh_anchor_choices()
+
+    def _on_anchor_resolution_changed(self, resolution: str) -> None:
+        self._set_shared_anchor_resolution(resolution)
+        self._preview_page.refresh_quest()
+        self._flow_page.refresh_anchor_choices()
 
     def _capture_preview(self) -> Path:
         if self._state.run_config is None:
