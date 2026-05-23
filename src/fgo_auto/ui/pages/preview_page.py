@@ -9,7 +9,11 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 from fgo_auto.quest.loader import resolve_quest_profile_dir
-from fgo_auto.services.quest_flow_service import anchor_choices_for_profile, save_quest_anchor_crop
+from fgo_auto.services.quest_flow_service import (
+    anchor_choices_for_profile,
+    save_quest_anchor_crop,
+    shared_anchor_save_path,
+)
 from fgo_auto.ui.strings_zh import translate_message
 
 _NEW_ANCHOR = "（新圖示名稱…）"
@@ -42,7 +46,6 @@ class PreviewPage(ctk.CTkFrame):
         top = ctk.CTkFrame(self)
         top.pack(fill="x", padx=12, pady=12)
         ctk.CTkButton(top, text="擷圖", width=72, command=self._capture).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(top, text="圖示", width=36, anchor="w").pack(side="left")
         self._anchor_pick = ctk.CTkOptionMenu(top, values=[_NEW_ANCHOR], width=160, command=self._on_anchor_pick)
         self._anchor_pick.pack(side="left", padx=(0, 4))
         self._anchor_new = ctk.CTkEntry(top, width=120, placeholder_text="新名稱")
@@ -226,8 +229,10 @@ class PreviewPage(ctk.CTkFrame):
             out = save_quest_anchor_crop(
                 quest_id, name, rect, frame_path=self._capture_path
             )
-            msg = f"已存圖示：\n{out}\n\n流程設定裡的「點擊／往下滑找」可選「{name}」。"
-            self._status.configure(text=f"已存圖示 {name} → {out}")
+            shared_out = shared_anchor_save_path(name, self._capture_path)
+            display_out = shared_out or out
+            msg = f"已存圖示：\n{display_out}\n\n流程設定裡的「點擊／往下滑找」可選「{name}」。"
+            self._status.configure(text=f"已存圖示 {name} → {display_out}")
             messagebox.showinfo("儲存成功", msg, parent=parent)
             self.refresh_quest()
             if self._on_anchor_saved:

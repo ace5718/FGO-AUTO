@@ -13,7 +13,10 @@ from fgo_auto.services.capture_service import CaptureService
 from fgo_auto.services.config_service import ConfigService
 from fgo_auto.services.paths import default_profile_dir, logs_dir
 from fgo_auto.services.catalog_service import count_templates
-from fgo_auto.services.quest_flow_service import list_user_quest_profiles
+from fgo_auto.services.quest_flow_service import (
+    is_profile_supported_for_resolution,
+    list_user_quest_profiles,
+)
 from fgo_auto.services.run_service import RunEventType, RunService
 from fgo_auto.services.run_setup import create_run_stack
 from fgo_auto.ui.pages import (
@@ -86,6 +89,8 @@ class FgoAutoApp(ctk.CTk):
             tab_flow,
             on_apply_quest_profile=self._apply_quest_profile,
             on_quest_selected=self._on_flow_quest_selected,
+            on_profiles_changed=self._refresh_run_quest_menu,
+            on_resolution_change=self._on_flow_resolution_changed,
         )
         self._flow_page.pack(fill="both", expand=True)
 
@@ -134,8 +139,13 @@ class FgoAutoApp(ctk.CTk):
         self._refresh_run_flow_status()
 
     def _refresh_run_quest_menu(self) -> None:
+        resolution = self._state.shared_anchor_resolution or "全部"
         entries = list_user_quest_profiles()
-        items = [(e.quest_id, f"{e.display_name or e.quest_id}") for e in entries]
+        items = [
+            (e.quest_id, f"{e.display_name or e.quest_id}")
+            for e in entries
+            if is_profile_supported_for_resolution(e.directory, resolution)
+        ]
         active = self._state.run_config.quest_profile if self._state.run_config else None
         if self._state.editing_quest_id:
             active = self._state.editing_quest_id
@@ -221,8 +231,14 @@ class FgoAutoApp(ctk.CTk):
         self._anchors_page.set_resolution(resolution)
         self._preview_page.refresh_quest()
         self._flow_page.refresh_anchor_choices()
+        self._refresh_run_quest_menu()
 
     def _on_anchor_resolution_changed(self, resolution: str) -> None:
+        self._set_shared_anchor_resolution(resolution)
+        self._preview_page.refresh_quest()
+        self._flow_page.refresh_anchor_choices()
+
+    def _on_flow_resolution_changed(self, resolution: str) -> None:
         self._set_shared_anchor_resolution(resolution)
         self._preview_page.refresh_quest()
         self._flow_page.refresh_anchor_choices()
@@ -237,7 +253,6 @@ class FgoAutoApp(ctk.CTk):
         frame = self._capture_svc.capture_frame()
         path = self._capture_svc.save_frame(frame, "frame.png")
         self._state.last_capture_path = path
-        self._config_svc.save_preview_frame(path)
         return path
 
     def _start_run(self) -> str:

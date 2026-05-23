@@ -23,6 +23,7 @@ from fgo_auto.services.quest_flow_service import (
     SCREEN_STATE_ZH,
     STEP_KINDS_MAIN,
     STEP_KINDS_SUBFLOW,
+    shared_anchor_resolutions,
     subflow_label_for_ref,
     subflow_picker_choices,
     subflow_ref_from_label,
@@ -36,7 +37,9 @@ from fgo_auto.services.quest_flow_service import (
     list_user_quest_profiles,
     load_flow,
     load_flow_script,
+    load_quest_profile,
     save_flow_script,
+    save_profile,
 )
 from fgo_auto.ui.strings_zh import translate_message
 from fgo_auto.ui.widgets.anchor_preview_dialog import show_anchor_fullsize
@@ -57,10 +60,11 @@ def _pil_anchor_thumb(path: Path) -> Image.Image:
     return img.convert("RGB")
 
 
-def _load_anchor_photo(profile_dir: Path | None, name: str) -> ImageTk.PhotoImage | None:
+def _load_anchor_photo(profile_dir: Path | None, name: str, resolution: str = "全部") -> ImageTk.PhotoImage | None:
     if profile_dir is None:
         return None
-    path = anchor_png_path(profile_dir, name)
+    resolution_arg = None if resolution == "全部" else resolution
+    path = anchor_png_path(profile_dir, name, resolution=resolution_arg)
     if path is None:
         return None
     try:
@@ -85,6 +89,7 @@ class _StepRow(ctk.CTkFrame):
         on_move: Callable[[int], None],
         step_kinds: dict[str, str],
         subflow_choices: tuple[str, ...] = (),
+        shared_anchor_resolution: str = "全部",
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -92,6 +97,7 @@ class _StepRow(ctk.CTkFrame):
         self._profile_dir = profile_dir
         self._step_kinds = step_kinds
         self._subflow_choices = subflow_choices or ("（尚無其他本機方案）",)
+        self._shared_anchor_resolution = shared_anchor_resolution
         self._thumb_photo: ImageTk.PhotoImage | None = None
 
         kinds = list(step_kinds.keys())
@@ -135,13 +141,18 @@ class _StepRow(ctk.CTkFrame):
             self._thumb_photo = None
             self._thumb_lbl.configure(image="", text="—")
             return
-        photo = _load_anchor_photo(self._profile_dir, name)
+        photo = _load_anchor_photo(self._profile_dir, name, resolution=self._shared_anchor_resolution)
         if photo is None:
             self._thumb_photo = None
             self._thumb_lbl.configure(image="", text="無圖")
             return
         self._thumb_photo = photo
         self._thumb_lbl.configure(image=photo, text="")
+
+    def set_shared_anchor_resolution(self, resolution: str) -> None:
+        self._shared_anchor_resolution = resolution
+        if "anchor" in self._pickers:
+            self._show_thumb(self._pick("anchor"))
 
     def _open_full_image(self) -> None:
         if self._kind_menu.get() not in ("點擊", "往下滑找圖示", "更新重找圖示"):
@@ -344,11 +355,15 @@ class FlowPage(ctk.CTkFrame):
         master,
         on_apply_quest_profile: Callable[[str], None] | None = None,
         on_quest_selected: Callable[[str], None] | None = None,
+        on_resolution_change: Callable[[str], None] | None = None,
+        on_profiles_changed: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._on_apply_quest = on_apply_quest_profile
         self._on_quest_selected = on_quest_selected
+        self._on_resolution_change = on_resolution_change
+        self._on_profiles_changed = on_profiles_changed
         self._entries: list[QuestProfileEntry] = []
         self._profile_dir: Path | None = None
         self._profile: QuestProfile | None = None
@@ -364,8 +379,15 @@ class FlowPage(ctk.CTkFrame):
         top = ctk.CTkFrame(self)
         top.pack(fill="x", padx=12, pady=6)
         ctk.CTkLabel(top, text="方案", width=40).pack(side="left")
-        self._profile_menu = ctk.CTkOptionMenu(top, values=["…"], width=280, command=self._on_profile_pick)
+        self._profile_menu = ctk.CTkOptionMenu(top, values=["…"], width=200, command=self._on_profile_pick)
         self._profile_menu.pack(side="left", padx=4)
+        ctk.CTkLabel(top, text="顯示名稱", width=72).pack(side="left", padx=(12, 0))
+        self._display_name = ctk.CTkEntry(top, width=240, placeholder_text="可編輯顯示名稱")
+        self._display_name.pack(side="left", padx=4)
+        ctk.CTkButton(top, text="更新名稱", width=88, command=self._save_display_name).pack(side="left", padx=4)
+        ctk.CTkLabel(top, text="解析度", width=56).pack(side="left", padx=(12, 0))
+        self._resolution_menu = ctk.CTkOptionMenu(top, values=("全部",), width=140, command=self._on_resolution_change)
+        self._resolution_menu.pack(side="left", padx=4)
         ctk.CTkButton(top, text="儲存", width=56, command=self.save).pack(side="left", padx=4)
         ctk.CTkButton(top, text="重新載入", width=72, command=self.reload).pack(side="left", padx=4)
 
@@ -422,8 +444,26 @@ class FlowPage(ctk.CTkFrame):
         if not self._anchor_choices:
             self._anchor_choices = [_NO_ANCHOR]
 
+    def _resolution_values(self) -> tuple[str, ...]:
+        return ("全部", *shared_anchor_resolutions())
+
+    def _update_resolution_menu(self) -> None:
+        values = list(self._resolution_values())
+        self._resolution_menu.configure(values=values)
+        if self._shared_anchor_resolution in values:
+            self._resolution_menu.set(self._shared_anchor_resolution)
+        else:
+            self._shared_anchor_resolution = values[0]
+            self._resolution_menu.set(self._shared_anchor_resolution)
+
+    def _on_resolution_change(self, selected: str) -> None:
+        self.set_shared_anchor_resolution(selected)
+        if self._on_resolution_change:
+            self._on_resolution_change(selected)
+
     def set_shared_anchor_resolution(self, resolution: str) -> None:
         self._shared_anchor_resolution = resolution
+        self._update_resolution_menu()
 
         if self._profile_dir is not None:
             steps = self._collect_steps() if self._step_rows else []
@@ -437,6 +477,7 @@ class FlowPage(ctk.CTkFrame):
                 self._anchor_choices = [_NO_ANCHOR]
 
         for row in self._step_rows:
+            row.set_shared_anchor_resolution(self._shared_anchor_resolution)
             if "anchor" in row._pickers:
                 menu = row._pickers["anchor"]
                 cur = menu.get()
@@ -467,6 +508,7 @@ class FlowPage(ctk.CTkFrame):
 
     def reload_profiles(self) -> None:
         self._entries = list_user_quest_profiles()
+        self._update_resolution_menu()
         if not self._entries:
             self._profile_menu.configure(values=["（尚無本機方案）"])
             self._profile_dir = None
@@ -476,19 +518,45 @@ class FlowPage(ctk.CTkFrame):
         labels = [f"{e.display_name or e.quest_id}" for e in self._entries]
         self._profile_menu.configure(values=labels)
         self._profile_menu.set(labels[0])
+        if self._on_profiles_changed:
+            self._on_profiles_changed()
         self.reload()
 
     def _selected_entry(self) -> QuestProfileEntry | None:
         if not self._entries:
             return None
         label = self._profile_menu.get()
-        idx = list(self._profile_menu.cget("values")).index(label)
+        values = list(self._profile_menu.cget("values"))
+        if label not in values:
+            return None
+        idx = values.index(label)
         return self._entries[idx]
+
+    def _save_display_name(self) -> None:
+        entry = self._selected_entry()
+        if entry is None or self._profile_dir is None:
+            self._status.configure(text="請先選本機方案")
+            return
+        display_name = self._display_name.get().strip()
+        if not display_name:
+            self._status.configure(text="請輸入顯示名稱")
+            return
+        try:
+            profile, _ = load_quest_profile(entry.quest_id)
+            profile.display_name = display_name
+            save_profile(self._profile_dir, profile)
+            self.reload_profiles()
+            self._select_quest_in_menu(entry.quest_id)
+            self.reload()
+            self._status.configure(text=f"已更新顯示名稱為「{display_name}」。")
+        except Exception as exc:
+            self._status.configure(text=translate_message(str(exc)))
 
     def _on_profile_pick(self, _label: str) -> None:
         self.reload()
 
     def reload(self) -> None:
+        self._update_resolution_menu()
         entry = self._selected_entry()
         if entry is None:
             return
@@ -509,6 +577,8 @@ class FlowPage(ctk.CTkFrame):
             if not self._anchor_choices:
                 self._anchor_choices = [_NO_ANCHOR]
             self._set_steps(navigation.steps)
+            self._display_name.delete(0, tk.END)
+            self._display_name.insert(0, entry.display_name or entry.quest_id)
             self._status.configure(
                 text=f"{entry.quest_id}　共用圖示庫 + 本關卡 anchors/"
             )
@@ -538,6 +608,7 @@ class FlowPage(ctk.CTkFrame):
             on_move=lambda delta, r=idx: self._move_step(r, delta),
             step_kinds=STEP_KINDS_MAIN,
             subflow_choices=self._subflow_choices,
+            shared_anchor_resolution=self._shared_anchor_resolution,
         )
         row.pack(fill="x", pady=2)
         self._step_rows.append(row)
@@ -600,6 +671,8 @@ class FlowPage(ctk.CTkFrame):
             if self._on_quest_selected:
                 self._on_quest_selected(quest_id)
             self._status.configure(text=f"已建立空白流程 {quest_id}，請用下方＋加步驟")
+            if self._on_profiles_changed:
+                self._on_profiles_changed()
         except Exception as exc:
             self._status.configure(text=translate_message(str(exc)))
 
@@ -648,6 +721,8 @@ class FlowPage(ctk.CTkFrame):
                 self._on_quest_selected(quest_id)
             src = source.display_name or source.quest_id
             self._status.configure(text=f"已從範例「{src}」複製為 {quest_id}，可改步驟或到預覽存圖示")
+            if self._on_profiles_changed:
+                self._on_profiles_changed()
         except Exception as exc:
             self._status.configure(text=translate_message(str(exc)))
 

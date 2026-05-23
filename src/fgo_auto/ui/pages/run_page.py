@@ -62,7 +62,7 @@ class RunPage(ctk.CTkFrame):
     def set_quest_choices(self, items: list[tuple[str, str]], active_id: str | None = None) -> None:
         """items: (quest_id, menu label)."""
         self._quest_ids = [q for q, _ in items]
-        labels = [label for _, label in items] or ["（無）"]
+        labels = [label for _, label in items] or ["（無可用流程）"]
         self._quest_menu.configure(values=labels)
         if active_id and active_id in self._quest_ids:
             idx = self._quest_ids.index(active_id)

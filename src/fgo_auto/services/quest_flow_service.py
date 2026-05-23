@@ -721,6 +721,30 @@ def anchor_choices_for_profile(
     return sorted(names)
 
 
+def is_profile_supported_for_resolution(profile_dir: Path, resolution: str | None = None) -> bool:
+    """Return True if all anchors referenced by the profile exist for the chosen resolution."""
+    resolution_arg = None if not resolution or resolution == "全部" else resolution
+    try:
+        profile, navigation, _ = load_flow(profile_dir.name)
+    except Exception:
+        return False
+    for name in anchors_referenced_by_flow(profile, navigation):
+        if anchor_png_path(profile_dir, name, resolution=resolution_arg) is None:
+            return False
+    return True
+
+
+def shared_anchor_save_path(name: str, frame_path: Path) -> Path | None:
+    """Return the shared anchor file path for a saved preview crop."""
+    import cv2
+
+    frame = cv2.imread(str(frame_path))
+    if frame is None:
+        return None
+    resolution = f"{frame.shape[1]}x{frame.shape[0]}"
+    return shared_anchors_dir() / resolution / f"{name}.png"
+
+
 def collect_anchor_names(profile: QuestProfile, navigation: NavigationScript) -> list[str]:
     names: list[str] = []
     for step in navigation.steps:
