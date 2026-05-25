@@ -9,6 +9,8 @@ from fgo_auto.host.tap import swipe_pixels, tap_pixels
 from fgo_auto.quest.loader import resolve_quest_profile_dir
 from fgo_auto.quest.models import (
     DelayStep,
+    ForRepeatStep,
+    IfAnchorStep,
     NavigationScript,
     NavigationStep,
     QuestProfile,
@@ -65,17 +67,49 @@ class NavigationEngine:
     def run_script(self, navigation: NavigationScript) -> bool:
         """Run all navigation steps. Returns False if paused on failure."""
         self.reset()
-        while self._step_index < len(navigation.steps):
-            step = navigation.steps[self._step_index]
-            ok = self._run_step(step, navigation, anchor_profile_dir=None)
-            if not ok:
+        ok = self._run_steps(navigation.steps, navigation, anchor_profile_dir=None)
+        if ok:
+            self._finished = True
+            logger.info("navigation_complete", steps=len(navigation.steps))
+        return ok
+
+    def _run_steps(
+        self,
+        steps: list[NavigationStep],
+        navigation: NavigationScript,
+        *,
+        anchor_profile_dir: Path | None = None,
+    ) -> bool:
+        for step in steps:
+            if not self._run_step(step, navigation, anchor_profile_dir=anchor_profile_dir):
                 return False
-            self._step_index += 1
-        self._finished = True
-        logger.info("navigation_complete", steps=len(navigation.steps))
         return True
 
+    @staticmethod
+    def _step_after_s(step: NavigationStep) -> float:
+        if isinstance(step, DelayStep):
+            return 0.0
+        return float(getattr(step, "after_s", 0) or 0)
+
+    def _sleep_after(self, step: NavigationStep) -> None:
+        delay = self._step_after_s(step)
+        if delay > 0:
+            time.sleep(delay)
+            logger.info("navigation_step", action="after_s", seconds=delay)
+
     def _run_step(
+        self,
+        step: NavigationStep,
+        navigation: NavigationScript,
+        *,
+        anchor_profile_dir: Path | None = None,
+    ) -> bool:
+        ok = self._execute_step(step, navigation, anchor_profile_dir=anchor_profile_dir)
+        if ok:
+            self._sleep_after(step)
+        return ok
+
+    def _execute_step(
         self,
         step: NavigationStep,
         navigation: NavigationScript,
@@ -105,6 +139,30 @@ class NavigationEngine:
                 refresh_name=step.refresh_anchor,
                 anchor_profile_dir=anchor_profile_dir,
             )
+        if isinstance(step, IfAnchorStep):
+            branch = (
+                step.then_steps
+                if self._find_anchor(step.name, anchor_profile_dir=anchor_profile_dir) is not None
+                else step.else_steps
+            )
+            logger.info(
+                "navigation_step",
+                action="if_anchor",
+                anchor=step.name,
+                branch="then" if branch is step.then_steps else "else",
+            )
+            return self._run_steps(branch, navigation, anchor_profile_dir=anchor_profile_dir)
+        if isinstance(step, ForRepeatStep):
+            for iteration in range(1, step.count + 1):
+                logger.info(
+                    "navigation_step",
+                    action="for_repeat",
+                    iteration=iteration,
+                    count=step.count,
+                )
+                if not self._run_steps(step.steps, navigation, anchor_profile_dir=anchor_profile_dir):
+                    return False
+            return True
         logger.warning("navigation_unknown_step", step=step)
         return True
 
@@ -118,9 +176,8 @@ class NavigationEngine:
             logger.warning("navigation_subflow_missing", ref=ref)
             return True
         for run in range(1, repeat + 1):
-            for sub_step in script.steps:
-                if not self._run_step(sub_step, script, anchor_profile_dir=anchor_dir):
-                    return False
+            if not self._run_steps(script.steps, script, anchor_profile_dir=anchor_dir):
+                return False
             if run < repeat:
                 time.sleep(interval_s)
         logger.info(

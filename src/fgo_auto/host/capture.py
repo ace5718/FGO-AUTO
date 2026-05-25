@@ -52,17 +52,34 @@ class WindowHostCapture:
         self._window = window
         self._preset = preset
         self._last: Frame | None = None
+        self._input_hwnd = window.handle
         import sys
 
         if sys.platform == "win32":
-            from fgo_auto.host.win32_capture import resolve_capture_hwnd
+            from fgo_auto.host.win32_capture import resolve_capture_hwnd, resolve_input_hwnd
             from fgo_auto.host.win32_geometry import client_area_screen_bounds
 
             self._capture_hwnd = resolve_capture_hwnd(window.handle)
+            self._input_hwnd = resolve_input_hwnd(window.handle)
             self._region = client_area_screen_bounds(self._capture_hwnd)
         else:
             self._capture_hwnd = window.handle
             self._region = (window.left, window.top, window.width, window.height)
+
+    def _sync_tap_target(self) -> None:
+        from fgo_auto.host.tap_target import TapTarget, get_tap_target, set_tap_target
+
+        if get_tap_target() is None:
+            return
+        left, top, _w, _h = self._region
+        set_tap_target(
+            TapTarget(
+                hwnd=self._input_hwnd,
+                origin_left=left,
+                origin_top=top,
+                client_coords=True,
+            )
+        )
 
     @property
     def capture_hwnd(self) -> int:
@@ -88,6 +105,7 @@ class WindowHostCapture:
             if candidate is not None:
                 self._capture_hwnd = hwnd
                 self._region = (left, top, width, height)
+                self._sync_tap_target()
                 image = candidate
                 break
 

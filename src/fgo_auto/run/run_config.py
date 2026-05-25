@@ -26,6 +26,9 @@ class RunConfig(BaseModel):
     script_config: str | None = None
     script_version: Literal["v0", "v2"] = "v0"
     quest_profile: str | None = None
+    input_method: Literal["adb", "window_message"] = "adb"
+    adb_device: str | None = None
+    adb_path: str | None = None
 
     @field_validator("display_preset", mode="before")
     @classmethod
@@ -47,6 +50,8 @@ class RunConfig(BaseModel):
             "script_config": self.script_config,
             "script_version": self.script_version,
             "quest_profile": self.quest_profile,
+            "input_method": self.input_method,
+            "adb_device": self.adb_device,
         }
 
 

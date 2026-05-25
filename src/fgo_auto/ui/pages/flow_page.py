@@ -9,6 +9,8 @@ from PIL import Image, ImageTk
 
 from fgo_auto.quest.models import (
     DelayStep,
+    ForRepeatStep,
+    IfAnchorStep,
     NavigationScript,
     NavigationStep,
     RefreshUntilAnchorStep,
@@ -45,6 +47,8 @@ from fgo_auto.services.quest_flow_service import (
 from fgo_auto.ui.strings_zh import translate_message
 from fgo_auto.ui.widgets.anchor_preview_dialog import show_anchor_fullsize
 from fgo_auto.ui.widgets.coordinate_pick_dialog import pick_coordinate_on_capture
+from fgo_auto.ui.widgets.flow_library_panel import FlowLibraryPanel
+from fgo_auto.ui.widgets.nested_steps_dialog import open_nested_steps_editor
 
 _NO_ANCHOR = "（尚無圖示，請到預覽／共用圖示庫新增）"
 _SCROLL_ATTEMPTS = ("5", "8", "10", "12", "15")
@@ -102,6 +106,9 @@ class _StepRow(ctk.CTkFrame):
         self._subflow_choices = subflow_choices or ("（尚無其他本機方案）",)
         self._shared_anchor_resolution = shared_anchor_resolution
         self._on_pick_coordinate = on_pick_coordinate
+        self._then_steps: list[NavigationStep] = []
+        self._else_steps: list[NavigationStep] = []
+        self._for_steps: list[NavigationStep] = []
         self._thumb_photo: ImageTk.PhotoImage | None = None
 
         kinds = list(step_kinds.keys())
@@ -159,7 +166,7 @@ class _StepRow(ctk.CTkFrame):
             self._show_thumb(self._pick("anchor"))
 
     def _open_full_image(self) -> None:
-        if self._kind_menu.get() not in ("點擊", "往下滑找圖示", "更新重找圖示"):
+        if self._kind_menu.get() not in ("點擊目標", "往下滑找圖示", "更新重找圖示", "條件判斷"):
             return
         name = self._pick("anchor") if "anchor" in self._pickers else None
         if name and not name.startswith("（"):
@@ -218,6 +225,48 @@ class _StepRow(ctk.CTkFrame):
         self._entries["x"] = x_entry
         self._entries["y"] = y_entry
 
+    def _add_after_s_entry(self, seconds: float = 0) -> None:
+        row = ctk.CTkFrame(self._detail)
+        row.pack(fill="x", pady=1)
+        ctk.CTkLabel(row, text="完成後", width=52, anchor="w").pack(side="left")
+        entry = ctk.CTkEntry(row, width=72, placeholder_text="0")
+        entry.insert(0, str(seconds))
+        entry.pack(side="left")
+        self._entries["after_s"] = entry
+
+    def _parse_after_s(self) -> float:
+        if "after_s" not in self._entries:
+            return 0.0
+        raw = self._entries["after_s"].get().strip()
+        if not raw:
+            return 0.0
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ValueError("完成後等待請輸入數字") from exc
+        if value < 0:
+            raise ValueError("完成後等待不可為負數")
+        return value
+
+    def _fill_after_s(self, step: NavigationStep) -> None:
+        if isinstance(step, DelayStep) or "after_s" not in self._entries:
+            return
+        self._entries["after_s"].delete(0, "end")
+        self._entries["after_s"].insert(0, str(getattr(step, "after_s", 0)))
+
+    def _edit_nested(self, title: str, steps: list[NavigationStep]) -> list[NavigationStep]:
+        edited = open_nested_steps_editor(
+            self.winfo_toplevel(),
+            title=title,
+            steps=steps,
+            profile_dir=self._profile_dir or Path("."),
+            step_kinds=self._step_kinds,
+            subflow_choices=self._subflow_choices,
+            shared_anchor_resolution=self._shared_anchor_resolution,
+            on_pick_coordinate=self._on_pick_coordinate,
+        )
+        return steps if edited is None else edited
+
     def _parse_seconds(self) -> float:
         raw = self._pick("seconds")
         if not raw:
@@ -265,10 +314,11 @@ class _StepRow(ctk.CTkFrame):
 
     def _load_step(self, step: NavigationStep) -> None:
         if isinstance(step, TapAnchorStep):
-            self._kind_menu.set("點擊")
-            self._on_kind("點擊")
+            self._kind_menu.set("點擊目標")
+            self._on_kind("點擊目標")
             self._set_pick("anchor", step.name, tuple(self._anchor_choices))
             self._show_thumb(step.name)
+            self._fill_after_s(step)
         elif isinstance(step, TapCoordinateStep):
             self._kind_menu.set("點擊座標")
             self._on_kind("點擊座標")
@@ -278,12 +328,14 @@ class _StepRow(ctk.CTkFrame):
             if "y" in self._entries:
                 self._entries["y"].delete(0, "end")
                 self._entries["y"].insert(0, str(step.y))
+            self._fill_after_s(step)
         elif isinstance(step, ScrollUntilAnchorStep):
             self._kind_menu.set("往下滑找圖示")
             self._on_kind("往下滑找圖示")
             self._set_pick("anchor", step.name, tuple(self._anchor_choices))
             self._set_pick("attempts", str(step.max_attempts), _SCROLL_ATTEMPTS)
             self._show_thumb(step.name)
+            self._fill_after_s(step)
         elif isinstance(step, DelayStep):
             self._kind_menu.set("等待秒")
             self._on_kind("等待秒")
@@ -295,11 +347,13 @@ class _StepRow(ctk.CTkFrame):
             self._on_kind("等待畫面")
             zh = next((k for k, v in SCREEN_STATE_ZH.items() if v == step.state), "主畫面")
             self._set_pick("screen", zh, _SCREEN_CHOICES)
+            self._fill_after_s(step)
         elif isinstance(step, RefreshUntilAnchorStep):
             self._kind_menu.set("更新重找圖示")
             self._on_kind("更新重找圖示")
             self._set_pick("anchor", step.name, tuple(self._anchor_choices))
             self._set_pick("attempts", str(step.max_attempts), _SCROLL_ATTEMPTS)
+            self._fill_after_s(step)
         elif isinstance(step, RunSubflowStep):
             self._kind_menu.set("執行子流程")
             self._on_kind("執行子流程")
@@ -314,10 +368,26 @@ class _StepRow(ctk.CTkFrame):
             if "interval" in self._entries:
                 self._entries["interval"].delete(0, "end")
                 self._entries["interval"].insert(0, str(step.interval_s))
+            self._fill_after_s(step)
+        elif isinstance(step, IfAnchorStep):
+            self._then_steps = list(step.then_steps)
+            self._else_steps = list(step.else_steps)
+            self._kind_menu.set("條件判斷")
+            self._on_kind("條件判斷")
+            self._set_pick("anchor", step.name, tuple(self._anchor_choices))
+            self._fill_after_s(step)
+        elif isinstance(step, ForRepeatStep):
+            self._for_steps = list(step.steps)
+            self._kind_menu.set("重複區塊")
+            self._on_kind("重複區塊")
+            if "count" in self._entries:
+                self._entries["count"].delete(0, "end")
+                self._entries["count"].insert(0, str(step.count))
+            self._fill_after_s(step)
 
     def _on_kind(self, kind: str) -> None:
         self._clear_detail()
-        if kind in ("點擊", "往下滑找圖示"):
+        if kind in ("點擊目標", "往下滑找圖示"):
             self._set_thumb_visible(True)
             self._add_picker(
                 "anchor",
@@ -353,6 +423,56 @@ class _StepRow(ctk.CTkFrame):
             )
             self._on_anchor_pick(self._pickers["anchor"].get())
             self._add_picker("attempts", "更新次數", _SCROLL_ATTEMPTS, width=72)
+        elif kind == "條件判斷":
+            self._set_thumb_visible(True)
+            self._add_picker(
+                "anchor",
+                "條件圖示",
+                tuple(self._anchor_choices),
+                on_change=self._on_anchor_pick,
+            )
+            self._on_anchor_pick(self._pickers["anchor"].get())
+            row = ctk.CTkFrame(self._detail)
+            row.pack(fill="x", pady=1)
+            ctk.CTkButton(
+                row,
+                text=f"Then（{len(self._then_steps)}）",
+                width=96,
+                command=lambda: setattr(
+                    self,
+                    "_then_steps",
+                    self._edit_nested("條件成立時執行", self._then_steps),
+                ),
+            ).pack(side="left", padx=(0, 4))
+            ctk.CTkButton(
+                row,
+                text=f"Else（{len(self._else_steps)}）",
+                width=96,
+                command=lambda: setattr(
+                    self,
+                    "_else_steps",
+                    self._edit_nested("條件不成立時執行", self._else_steps),
+                ),
+            ).pack(side="left")
+        elif kind == "重複區塊":
+            self._set_thumb_visible(False)
+            row = ctk.CTkFrame(self._detail)
+            row.pack(fill="x", pady=1)
+            ctk.CTkLabel(row, text="次數", width=52, anchor="w").pack(side="left")
+            count = ctk.CTkEntry(row, width=48)
+            count.insert(0, "1")
+            count.pack(side="left", padx=(0, 8))
+            self._entries["count"] = count
+            ctk.CTkButton(
+                row,
+                text=f"區塊步驟（{len(self._for_steps)}）",
+                width=120,
+                command=lambda: setattr(
+                    self,
+                    "_for_steps",
+                    self._edit_nested("重複執行的步驟", self._for_steps),
+                ),
+            ).pack(side="left")
         elif kind == "執行子流程":
             self._set_thumb_visible(False)
             row = ctk.CTkFrame(self._detail)
@@ -375,6 +495,8 @@ class _StepRow(ctk.CTkFrame):
             iv.insert(0, "0.5")
             iv.pack(side="left")
             self._entries["interval"] = iv
+        if kind != "等待秒":
+            self._add_after_s_entry(0)
 
     def _resolve_anchor_name(self) -> str:
         name = self._pick("anchor")
@@ -385,30 +507,55 @@ class _StepRow(ctk.CTkFrame):
     def to_step(self) -> NavigationStep:
         kind = self._kind_menu.get()
         action = self._step_kinds[kind]
+        after_s = self._parse_after_s()
         if action == "tap_anchor":
-            return TapAnchorStep(name=self._resolve_anchor_name())
+            return TapAnchorStep(name=self._resolve_anchor_name(), after_s=after_s)
         if action == "scroll_until_anchor":
             return ScrollUntilAnchorStep(
                 name=self._resolve_anchor_name(),
                 max_attempts=int(self._pick("attempts")),
+                after_s=after_s,
             )
         if action == "refresh_until_anchor":
             return RefreshUntilAnchorStep(
                 name=self._resolve_anchor_name(),
                 max_attempts=int(self._pick("attempts")),
+                after_s=after_s,
             )
         if action == "delay":
             return DelayStep(seconds=self._parse_seconds())
         if action == "tap_coordinate":
-            return TapCoordinateStep(x=self._parse_coordinate("x"), y=self._parse_coordinate("y"))
+            return TapCoordinateStep(
+                x=self._parse_coordinate("x"),
+                y=self._parse_coordinate("y"),
+                after_s=after_s,
+            )
         if action == "wait_screen":
-            return WaitScreenStep(state=SCREEN_STATE_ZH[self._pick("screen")], timeout_s=15.0)
+            return WaitScreenStep(
+                state=SCREEN_STATE_ZH[self._pick("screen")],
+                timeout_s=15.0,
+                after_s=after_s,
+            )
+        if action == "if_anchor":
+            return IfAnchorStep(
+                name=self._resolve_anchor_name(),
+                then_steps=list(self._then_steps),
+                else_steps=list(self._else_steps),
+                after_s=after_s,
+            )
+        if action == "for_repeat":
+            return ForRepeatStep(
+                count=max(1, int(self._pick("count") or "1")),
+                steps=list(self._for_steps),
+                after_s=after_s,
+            )
         ref_zh = self._pick("subflow")
         ref = subflow_ref_from_label(ref_zh)
         return RunSubflowStep(
             ref=ref,
             repeat=max(1, int(float(self._pick("repeat") or "1"))),
             interval_s=float(self._pick("interval") or "0.5"),
+            after_s=after_s,
         )
 
 
@@ -441,11 +588,28 @@ class FlowPage(ctk.CTkFrame):
             anchor="w", padx=12, pady=(10, 4)
         )
 
-        top = ctk.CTkFrame(self)
-        top.pack(fill="x", padx=12, pady=6)
-        ctk.CTkLabel(top, text="方案", width=40).pack(side="left")
-        self._profile_menu = ctk.CTkOptionMenu(top, values=["…"], width=200, command=self._on_profile_pick)
-        self._profile_menu.pack(side="left", padx=4)
+        self._active_quest_id: str | None = None
+
+        body = ctk.CTkFrame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=4)
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+
+        self._library = FlowLibraryPanel(
+            body,
+            on_select=self._select_quest_from_library,
+            on_changed=self._on_library_changed,
+        )
+        self._library.grid(row=0, column=0, sticky="ns", padx=(0, 8))
+
+        editor = ctk.CTkFrame(body)
+        editor.grid(row=0, column=1, sticky="nsew")
+
+        top = ctk.CTkFrame(editor)
+        top.pack(fill="x", padx=0, pady=6)
+        ctk.CTkLabel(top, text="目前流程", width=64).pack(side="left")
+        self._current_quest_lbl = ctk.CTkLabel(top, text="（請從左側列表選擇）", anchor="w")
+        self._current_quest_lbl.pack(side="left", padx=4)
         ctk.CTkLabel(top, text="顯示名稱", width=72).pack(side="left", padx=(12, 0))
         self._display_name = ctk.CTkEntry(top, width=240, placeholder_text="可編輯顯示名稱")
         self._display_name.pack(side="left", padx=4)
@@ -456,8 +620,8 @@ class FlowPage(ctk.CTkFrame):
         ctk.CTkButton(top, text="儲存", width=56, command=self.save).pack(side="left", padx=4)
         ctk.CTkButton(top, text="重新載入", width=72, command=self.reload).pack(side="left", padx=4)
 
-        copy_row = ctk.CTkFrame(self)
-        copy_row.pack(fill="x", padx=12, pady=2)
+        copy_row = ctk.CTkFrame(editor)
+        copy_row.pack(fill="x", padx=0, pady=2)
         self._new_id = ctk.CTkEntry(copy_row, placeholder_text="新方案 ID（英文底線）", width=160)
         self._new_id.pack(side="left", padx=(0, 6))
         self._new_name = ctk.CTkEntry(copy_row, placeholder_text="顯示名稱（可選）", width=120)
@@ -472,22 +636,24 @@ class FlowPage(ctk.CTkFrame):
         ).pack(side="left", padx=2)
 
         self._steps_host = ctk.CTkScrollableFrame(
-            self, height=280, label_text="主流程（用「執行子流程」選其他本機方案）"
+            editor, height=280, label_text="主流程（支援完成後等待、條件判斷、重複區塊）"
         )
-        self._steps_host.pack(fill="both", expand=True, padx=12, pady=4)
+        self._steps_host.pack(fill="both", expand=True, padx=0, pady=4)
 
-        add_row = ctk.CTkFrame(self)
-        add_row.pack(fill="x", padx=12, pady=4)
-        ctk.CTkButton(add_row, text="＋點擊", width=72, command=self._add_tap).pack(side="left", padx=2)
+        add_row = ctk.CTkFrame(editor)
+        add_row.pack(fill="x", padx=0, pady=4)
+        ctk.CTkButton(add_row, text="＋點擊目標", width=88, command=self._add_tap).pack(side="left", padx=2)
         ctk.CTkButton(add_row, text="＋點擊座標", width=96, command=self._add_coordinate).pack(side="left", padx=2)
         ctk.CTkButton(add_row, text="＋往下滑找", width=96, command=self._add_scroll).pack(side="left", padx=2)
+        ctk.CTkButton(add_row, text="＋條件", width=72, command=self._add_if_step).pack(side="left", padx=2)
+        ctk.CTkButton(add_row, text="＋重複", width=72, command=self._add_for_step).pack(side="left", padx=2)
         ctk.CTkButton(add_row, text="＋等待", width=72, command=lambda: self._add_step(DelayStep(seconds=0.5))).pack(
             side="left", padx=2
         )
         ctk.CTkButton(add_row, text="＋子流程", width=80, command=self._add_subflow_step).pack(side="left", padx=2)
 
-        self._status = ctk.CTkLabel(self, text="", anchor="w", wraplength=880)
-        self._status.pack(fill="x", padx=12, pady=6)
+        self._status = ctk.CTkLabel(editor, text="", anchor="w", wraplength=640)
+        self._status.pack(fill="x", padx=0, pady=6)
 
         self.reload_profiles()
 
@@ -573,6 +739,12 @@ class FlowPage(ctk.CTkFrame):
                 return
         self._add_step(TapCoordinateStep(x=0, y=0))
 
+    def _add_if_step(self) -> None:
+        self._add_step(IfAnchorStep(name=self._default_anchor()))
+
+    def _add_for_step(self) -> None:
+        self._add_step(ForRepeatStep(count=2, steps=[]))
+
     def _add_subflow_step(self) -> None:
         entry = self._selected_entry()
         choices = subflow_picker_choices(
@@ -588,28 +760,36 @@ class FlowPage(ctk.CTkFrame):
     def reload_profiles(self) -> None:
         self._entries = list_user_quest_profiles()
         self._update_resolution_menu()
+        if hasattr(self, "_library"):
+            self._library.reload()
         if not self._entries:
-            self._profile_menu.configure(values=["（尚無本機方案）"])
             self._profile_dir = None
             self._clear_steps()
+            self._current_quest_lbl.configure(text="（尚無本機方案）")
             self._status.configure(text="請新增本機方案開始")
             return
-        labels = [f"{e.display_name or e.quest_id}" for e in self._entries]
-        self._profile_menu.configure(values=labels)
-        self._profile_menu.set(labels[0])
         if self._on_profiles_changed:
             self._on_profiles_changed()
+        if self._active_quest_id is None:
+            self._active_quest_id = self._entries[0].quest_id
         self.reload()
 
     def _selected_entry(self) -> QuestProfileEntry | None:
-        if not self._entries:
+        if not self._entries or not self._active_quest_id:
             return None
-        label = self._profile_menu.get()
-        values = list(self._profile_menu.cget("values"))
-        if label not in values:
-            return None
-        idx = values.index(label)
-        return self._entries[idx]
+        for entry in self._entries:
+            if entry.quest_id == self._active_quest_id:
+                return entry
+        return None
+
+    def _select_quest_from_library(self, quest_id: str) -> None:
+        self._active_quest_id = quest_id
+        if self._on_quest_selected:
+            self._on_quest_selected(quest_id)
+        self.reload()
+
+    def _on_library_changed(self) -> None:
+        self.reload_profiles()
 
     def _save_display_name(self) -> None:
         entry = self._selected_entry()
@@ -630,9 +810,6 @@ class FlowPage(ctk.CTkFrame):
             self._status.configure(text=f"已更新顯示名稱為「{display_name}」。")
         except Exception as exc:
             self._status.configure(text=translate_message(str(exc)))
-
-    def _on_profile_pick(self, _label: str) -> None:
-        self.reload()
 
     def reload(self) -> None:
         self._update_resolution_menu()
@@ -658,6 +835,7 @@ class FlowPage(ctk.CTkFrame):
             self._set_steps(navigation.steps)
             self._display_name.delete(0, tk.END)
             self._display_name.insert(0, entry.display_name or entry.quest_id)
+            self._current_quest_lbl.configure(text=entry.quest_id)
             self._status.configure(
                 text=f"{entry.quest_id}　共用圖示庫 + 本關卡 anchors/"
             )
@@ -733,10 +911,9 @@ class FlowPage(ctk.CTkFrame):
             self._status.configure(text=translate_message(str(exc)))
 
     def _select_quest_in_menu(self, quest_id: str) -> None:
-        for i, e in enumerate(self._entries):
-            if e.quest_id == quest_id:
-                self._profile_menu.set(list(self._profile_menu.cget("values"))[i])
-                break
+        self._active_quest_id = quest_id
+        if hasattr(self, "_library"):
+            self._library.reload()
 
     def _create_blank(self) -> None:
         quest_id = self._new_id.get().strip()

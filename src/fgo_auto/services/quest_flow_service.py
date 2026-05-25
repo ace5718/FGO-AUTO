@@ -12,7 +12,9 @@ from fgo_auto.quest.loader import load_navigation_script, load_quest_profile, re
 from fgo_auto.quest.models import (
     BattleScript,
     DelayStep,
+    ForRepeatStep,
     FriendSupportConfig,
+    IfAnchorStep,
     NavigationScript,
     NavigationStep,
     QuestProfile,
@@ -495,6 +497,8 @@ def create_blank_profile(quest_id: str, display_name: str = "") -> Path:
 
 def delete_user_quest_profile(quest_id: str) -> None:
     """Remove a user copy under data/profiles/quests/ (not examples)."""
+    from fgo_auto.services.flow_library import load_library, save_library
+
     _validate_quest_id(quest_id)
     dest = _user_quest_dir(quest_id)
     user_base = data_root() / "profiles" / "quests"
@@ -505,6 +509,10 @@ def delete_user_quest_profile(quest_id: str) -> None:
     import shutil
 
     shutil.rmtree(dest)
+    library = load_library()
+    if quest_id in library.assignments:
+        del library.assignments[quest_id]
+        save_library(library)
 
 
 def copy_profile_to_user(quest_id: str, source_id: str = "treasure_door_extreme") -> Path:
@@ -529,6 +537,15 @@ def step_to_dict(step: NavigationStep) -> dict:
 
 def dict_to_step(data: dict) -> NavigationStep:
     action = data.get("action")
+    if action == "if_anchor":
+        payload = dict(data)
+        payload["then_steps"] = [dict_to_step(raw) for raw in payload.get("then_steps", [])]
+        payload["else_steps"] = [dict_to_step(raw) for raw in payload.get("else_steps", [])]
+        return IfAnchorStep.model_validate(payload)
+    if action == "for_repeat":
+        payload = dict(data)
+        payload["steps"] = [dict_to_step(raw) for raw in payload.get("steps", [])]
+        return ForRepeatStep.model_validate(payload)
     if action == "tap_anchor":
         return TapAnchorStep.model_validate(data)
     if action == "scroll_until_anchor":
@@ -544,6 +561,18 @@ def dict_to_step(data: dict) -> NavigationStep:
     if action == "run_subflow":
         return RunSubflowStep.model_validate(data)
     raise ConfigError(f"未知的步驟類型：{action!r}")
+
+
+def _collect_steps_recursive(steps: list[NavigationStep]) -> list[NavigationStep]:
+    flat: list[NavigationStep] = []
+    for step in steps:
+        flat.append(step)
+        if isinstance(step, IfAnchorStep):
+            flat.extend(_collect_steps_recursive(step.then_steps))
+            flat.extend(_collect_steps_recursive(step.else_steps))
+        elif isinstance(step, ForRepeatStep):
+            flat.extend(_collect_steps_recursive(step.steps))
+    return flat
 
 
 def _legacy_anchors_dir() -> Path:
@@ -710,6 +739,14 @@ def anchors_referenced_by_flow(
     return set(refs)
 
 
+def _anchor_names_in_steps(steps: list[NavigationStep]) -> list[str]:
+    names: list[str] = []
+    for step in _collect_steps_recursive(steps):
+        if isinstance(step, (TapAnchorStep, ScrollUntilAnchorStep, RefreshUntilAnchorStep, IfAnchorStep)):
+            names.append(step.name)
+    return names
+
+
 def anchor_choices_for_profile(
     profile_dir: Path,
     navigation: NavigationScript | None = None,
@@ -718,9 +755,8 @@ def anchor_choices_for_profile(
     """Union of shared anchors, quest anchors/, and step names."""
     names: set[str] = set(list_saved_anchors(profile_dir, resolution))
     if navigation is not None:
-        for step in navigation.steps:
-            if isinstance(step, (TapAnchorStep, ScrollUntilAnchorStep)):
-                names.add(step.name)
+        for name in _anchor_names_in_steps(navigation.steps):
+            names.add(name)
     return sorted(names)
 
 
@@ -749,10 +785,7 @@ def shared_anchor_save_path(name: str, frame_path: Path) -> Path | None:
 
 
 def collect_anchor_names(profile: QuestProfile, navigation: NavigationScript) -> list[str]:
-    names: list[str] = []
-    for step in navigation.steps:
-        if isinstance(step, (TapAnchorStep, ScrollUntilAnchorStep)):
-            names.append(step.name)
+    names: list[str] = _anchor_names_in_steps(navigation.steps)
     if profile.friend_support:
         for raw in profile.friend_support.steps:
             if "tap" in raw:
@@ -768,26 +801,30 @@ FRIEND_SUPPORT_TOOLTIP = (
 FRIEND_SUPPORT_SETUP_INTRO = "請在「圖示庫」下方啟用並儲存好友設定，再到「預覽」存三張小圖。"
 
 FLOW_GUIDE = (
-    "① 編排主流程；用「執行子流程」選其他已存本機方案，可設次數與間隔。\n"
-    "② 各方案的主流程在 navigation.yaml；片段檔在 subflows/*.yaml（相容舊 ref）。\n"
-    "③ 圖示存「預覽」或「共用圖示庫」（比對支援約 ±15% 縮放）；列表往下拉用「往下滑找圖示」。"
+    "① 左側流程列表可建資料夾分類；點流程名稱編輯主流程。\n"
+    "② 各步驟可設「完成後」等待秒數；「條件判斷」= if 圖示可見；「重複區塊」= for 次數。\n"
+    "③ 圖示存「預覽」或「共用圖示庫」；往下拉列表用「往下滑找圖示」。"
 )
 
 # GUI 顯示 ↔ YAML action
 STEP_KINDS_MAIN: dict[str, str] = {
     "執行子流程": "run_subflow",
-    "點擊": "tap_anchor",
+    "點擊目標": "tap_anchor",
     "點擊座標": "tap_coordinate",
     "往下滑找圖示": "scroll_until_anchor",
+    "條件判斷": "if_anchor",
+    "重複區塊": "for_repeat",
     "等待秒": "delay",
     "等待畫面": "wait_screen",
 }
 
 STEP_KINDS_SUBFLOW: dict[str, str] = {
-    "點擊": "tap_anchor",
+    "點擊目標": "tap_anchor",
     "點擊座標": "tap_coordinate",
     "往下滑找圖示": "scroll_until_anchor",
     "更新重找圖示": "refresh_until_anchor",
+    "條件判斷": "if_anchor",
+    "重複區塊": "for_repeat",
     "等待秒": "delay",
     "等待畫面": "wait_screen",
 }

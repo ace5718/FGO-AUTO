@@ -27,12 +27,14 @@ class QuestProfile(BaseModel):
 class TapAnchorStep(BaseModel):
     action: Literal["tap_anchor"] = "tap_anchor"
     name: str
+    after_s: float = Field(default=0, ge=0)
 
 
 class TapCoordinateStep(BaseModel):
     action: Literal["tap_coordinate"] = "tap_coordinate"
     x: int = Field(ge=0)
     y: int = Field(ge=0)
+    after_s: float = Field(default=0, ge=0)
 
 
 class ScrollUntilAnchorStep(BaseModel):
@@ -41,12 +43,14 @@ class ScrollUntilAnchorStep(BaseModel):
     action: Literal["scroll_until_anchor"] = "scroll_until_anchor"
     name: str
     max_attempts: int = Field(default=8, ge=1, le=30)
+    after_s: float = Field(default=0, ge=0)
 
 
 class WaitScreenStep(BaseModel):
     action: Literal["wait_screen"] = "wait_screen"
     state: str
     timeout_s: float = 30.0
+    after_s: float = Field(default=0, ge=0)
 
 
 class DelayStep(BaseModel):
@@ -61,6 +65,7 @@ class RefreshUntilAnchorStep(BaseModel):
     name: str
     max_attempts: int = Field(default=20, ge=1, le=60)
     refresh_anchor: str = "friend_refresh"
+    after_s: float = Field(default=0, ge=0)
 
 
 class RunSubflowStep(BaseModel):
@@ -68,6 +73,26 @@ class RunSubflowStep(BaseModel):
     ref: str
     repeat: int = Field(default=1, ge=1, le=99)
     interval_s: float = Field(default=0.5, ge=0)
+    after_s: float = Field(default=0, ge=0)
+
+
+class IfAnchorStep(BaseModel):
+    """If anchor visible on screen, run then_steps; otherwise else_steps."""
+
+    action: Literal["if_anchor"] = "if_anchor"
+    name: str
+    then_steps: list["NavigationStep"] = Field(default_factory=list)
+    else_steps: list["NavigationStep"] = Field(default_factory=list)
+    after_s: float = Field(default=0, ge=0)
+
+
+class ForRepeatStep(BaseModel):
+    """Run nested steps count times."""
+
+    action: Literal["for_repeat"] = "for_repeat"
+    count: int = Field(default=1, ge=1, le=999)
+    steps: list["NavigationStep"] = Field(default_factory=list)
+    after_s: float = Field(default=0, ge=0)
 
 
 NavigationStep = Annotated[
@@ -77,13 +102,21 @@ NavigationStep = Annotated[
     | RefreshUntilAnchorStep
     | WaitScreenStep
     | DelayStep
-    | RunSubflowStep,
+    | RunSubflowStep
+    | IfAnchorStep
+    | ForRepeatStep,
     Field(discriminator="action"),
 ]
+
+IfAnchorStep.model_rebuild()
+ForRepeatStep.model_rebuild()
 
 
 class NavigationScript(BaseModel):
     steps: list[NavigationStep]
+
+
+NavigationScript.model_rebuild()
 
 
 class ServantSkillAction(BaseModel):

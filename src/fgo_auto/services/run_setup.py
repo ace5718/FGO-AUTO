@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Union
 
 from fgo_auto.host.capture import CaptureError, HostCapture
+from fgo_auto.host.input_backend import configure_input_backend
 from fgo_auto.host.window_binder import WindowBinder
 from fgo_auto.quest.loader import resolve_quest_profile_dir
 from fgo_auto.run.controller import RunController
@@ -81,6 +82,12 @@ def create_run_stack(
     quest_profile: str | None = None,
 ) -> tuple[ScriptEngineLike, RunController]:
     config = merged.config
+    configure_input_backend(
+        method=config.input_method,
+        adb_path=config.adb_path,
+        adb_device=config.adb_device,
+        frame_size=config.display_preset,
+    )
     capture = create_capture(
         config,
         fixture=fixture,

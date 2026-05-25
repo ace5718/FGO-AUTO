@@ -42,6 +42,44 @@ def _gdi32():
     return ctypes.windll.gdi32
 
 
+def _window_title(hwnd: int) -> str:
+    user32 = _user32()
+    length = user32.GetWindowTextLengthW(hwnd) + 1
+    if length <= 1:
+        return ""
+    buf = ctypes.create_unicode_buffer(length)
+    user32.GetWindowTextW(hwnd, buf, length)
+    return buf.value
+
+
+def resolve_input_hwnd(top_hwnd: int) -> int:
+    """
+    HWND that accepts injected mouse messages (BlueStacks: PluginAndroid child).
+    Falls back to the largest visible child used for capture.
+    """
+    if sys.platform != "win32":
+        return top_hwnd
+
+    user32 = _user32()
+    plugin_handles: list[int] = []
+
+    def visit(parent: int) -> None:
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def callback(child: int, _lparam: int) -> bool:
+            title = _window_title(child)
+            if "PluginAndroid" in title:
+                plugin_handles.append(child)
+            visit(child)
+            return True
+
+        user32.EnumChildWindows(parent, callback, 0)
+
+    visit(top_hwnd)
+    if plugin_handles:
+        return plugin_handles[0]
+    return resolve_capture_hwnd(top_hwnd)
+
+
 def resolve_capture_hwnd(top_hwnd: int) -> int:
     """
     Prefer the largest visible child (BlueStacks render surface); else top-level hwnd.

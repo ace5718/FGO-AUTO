@@ -22,6 +22,14 @@ def normalized_to_pixels(
 def tap_pixels(coords: tuple[int, int]) -> None:
     import sys
 
+    from fgo_auto.host.input_backend import active_input_method, adb_client
+
+    if active_input_method() == "adb":
+        client = adb_client()
+        if client is not None:
+            client.tap(coords[0], coords[1])
+            return
+
     target = get_tap_target()
     if sys.platform == "win32" and target is not None:
         from fgo_auto.host.window_click import post_click
@@ -29,15 +37,15 @@ def tap_pixels(coords: tuple[int, int]) -> None:
         post_click(target, coords[0], coords[1])
         return
 
-    if sys.platform != "win32":
-        logger.info("click_simulated", x=coords[0], y=coords[1])
+    if sys.platform == "win32":
+        logger.error(
+            "tap_no_window_bound",
+            x=coords[0],
+            y=coords[1],
+            hint="Bind BlueStacks on the Run tab before starting",
+        )
         return
-    try:
-        import pyautogui
-    except ImportError:
-        logger.warning("pyautogui_missing", x=coords[0], y=coords[1])
-        return
-    pyautogui.click(coords[0], coords[1])
+    logger.info("click_simulated", x=coords[0], y=coords[1])
 
 
 def tap_normalized(x: float, y: float, width: int, height: int) -> None:
@@ -53,6 +61,20 @@ def swipe_pixels(
     """Drag on screen (e.g. scroll a vertical quest list)."""
     import sys
 
+    from fgo_auto.host.input_backend import active_input_method, adb_client
+
+    if active_input_method() == "adb":
+        client = adb_client()
+        if client is not None:
+            client.swipe(
+                start[0],
+                start[1],
+                end[0],
+                end[1],
+                duration_ms=int(duration_s * 1000),
+            )
+            return
+
     target = get_tap_target()
     if sys.platform == "win32" and target is not None:
         from fgo_auto.host.window_click import post_swipe
@@ -60,14 +82,12 @@ def swipe_pixels(
         post_swipe(target, start, end, duration_s=duration_s)
         return
 
-    if sys.platform != "win32":
-        logger.info("swipe_simulated", start=start, end=end)
+    if sys.platform == "win32":
+        logger.error(
+            "swipe_no_window_bound",
+            start=start,
+            end=end,
+            hint="Bind BlueStacks on the Run tab before starting",
+        )
         return
-    try:
-        import pyautogui
-    except ImportError:
-        logger.warning("pyautogui_missing", start=start, end=end)
-        return
-    pyautogui.moveTo(start[0], start[1])
-    pyautogui.dragTo(end[0], end[1], duration=duration_s, button="left")
-    logger.info("swipe", start=start, end=end)
+    logger.info("swipe_simulated", start=start, end=end)

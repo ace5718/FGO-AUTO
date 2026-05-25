@@ -25,7 +25,7 @@ class RunPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self,
-            text="① 綁定視窗　② 選流程並套用　③「設定」儲存　④ 開始執行（自動擷圖比對畫面；點擊不會移動你的滑鼠）",
+            text="① 綁定視窗　② 選流程並套用　③「設定」儲存　④ 開始執行（預設 ADB 點擊，不動滑鼠；需開 BlueStacks Android 偵錯）",
             anchor="w",
             wraplength=900,
             font=ctk.CTkFont(size=13),

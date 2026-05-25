@@ -36,9 +36,11 @@ class CaptureService:
         capture = create_host_capture(self._window, preset)
         self._capture = capture
         left, top, _w, _h = capture.capture_region
+        from fgo_auto.host.win32_capture import resolve_input_hwnd
+
         set_tap_target(
             TapTarget(
-                hwnd=capture.capture_hwnd,
+                hwnd=resolve_input_hwnd(self._window.handle),
                 origin_left=left,
                 origin_top=top,
                 client_coords=True,
